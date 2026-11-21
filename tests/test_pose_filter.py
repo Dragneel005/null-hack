@@ -28,3 +28,13 @@ def test_missing_frames_stay_missing():
     xs[4] = None
     out = pose.smooth(_frames(xs), window=5)
     assert out[4]["lm"] is None and out[5]["lm"]["l_hip"][0] == 100.0
+
+
+def test_skipped_frames_are_interpolated_but_real_dropouts_stay_missing():
+    frames = _frames([100.0, None, 120.0, None, None])
+    frames[1]["_skip"] = True                      # skipped by frame_step: fill it
+    frames[3]["_skip"] = True                      # skipped, but no tracked frame after it: leave it
+    out = pose._fill_skipped(frames)
+    assert out[1]["lm"]["l_hip"][0] == 110.0
+    assert out[3]["lm"] is None and out[4]["lm"] is None
+    assert all("_skip" not in f for f in out)

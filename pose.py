@@ -91,9 +91,34 @@ def smooth(frames: list[dict], window: int = 5) -> list[dict]:
     return out
 
 
+def _fill_skipped(frames: list[dict]) -> list[dict]:
+    """Linearly interpolate frames that were skipped (frame_step > 1) from their tracked neighbours."""
+    known = [i for i, f in enumerate(frames) if f["lm"] is not None and not f.get("_skip")]
+    for f in frames:
+        f.pop("_skip", None)
+    for a, b in zip(known, known[1:]):
+        if b - a < 2:
+            continue
+        fa, fb = frames[a], frames[b]
+        for i in range(a + 1, b):
+            if frames[i]["lm"] is not None:
+                continue
+            u = (i - a) / (b - a)
+            frames[i]["lm"] = {n: [fa["lm"][n][k] + u * (fb["lm"][n][k] - fa["lm"][n][k]) for k in range(3)]
+                               for n in fa["lm"]}
+            if fa["world"] and fb["world"]:
+                frames[i]["world"] = {n: [fa["world"][n][k] + u * (fb["world"][n][k] - fa["world"][n][k])
+                                          for k in range(3)] for n in fa["world"]}
+    return frames
+
+
 def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
-            max_width: int = 960, smooth_window: int = 5, progress=None) -> dict:
-    """Run pose estimation over a video. `progress(fraction)` is called if given."""
+            max_width: int = 960, smooth_window: int = 5, progress=None, frame_step: int = 1) -> dict:
+    """Run pose estimation over a video. `progress(fraction)` is called if given.
+
+    frame_step=2 runs the model on every other frame and interpolates the rest (~2x faster);
+    only gaps between two tracked frames are filled, so real dropouts stay null.
+    """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise ValueError(f"Could not open video: {video_path}")
@@ -116,6 +141,12 @@ def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
     frames, w, h, idx = [], None, None, 0
     with vision.PoseLandmarker.create_from_options(opts) as landmarker:
         while idx < limit:
+            if w is not None and frame_step > 1 and idx % frame_step:
+                if not cap.grab():
+                    break
+                frames.append({"i": idx, "t": round(idx / fps, 4), "lm": None, "world": None, "_skip": True})
+                idx += 1
+                continue
             ok, frame = cap.read()
             if not ok:
                 break
@@ -150,6 +181,7 @@ def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
     cap.release()
     if w is None:
         raise ValueError("Video contained no readable frames")
+    frames = _fill_skipped(frames)
     detected = sum(1 for f in frames if f["lm"] is not None)
     return {
         "source": os.path.basename(str(video_path)),

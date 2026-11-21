@@ -1,9 +1,9 @@
-"""Form Coach: Streamlit UI. OWNER: Person 3.
+"""Form Coach: Streamlit UI.
 
     streamlit run app.py
 
-Works from minute one: any pipeline stage that isn't implemented yet (or crashes) falls
-back to samples/sample_*.json, and a yellow banner says which stages are mocked.
+Upload a side-view push-up set (or try the demo). Every stage falls back to samples/ if it
+isn't available, and the page says which numbers are mocked.
 """
 from __future__ import annotations
 
@@ -24,20 +24,86 @@ import pose  # noqa: E402
 import video  # noqa: E402
 
 try:
-    import analysis as rules  # noqa: E402  (Person 2; see CONTRACT.md §2)
+    import analysis as rules  # noqa: E402
 except ImportError:  # not written yet -> run_pipeline falls back to samples/sample_analysis.json
     class rules:  # noqa: N801
         @staticmethod
         def analyze(*_args, **_kwargs):
             raise NotImplementedError("analysis.py not written yet")
 
+try:
+    import imu  # noqa: E402
+except ImportError:
+    imu = None
+
 ROOT = Path(__file__).resolve().parent
 SAMPLE_LANDMARKS = ROOT / "samples" / "sample_landmarks.json"
 SAMPLE_ANALYSIS = ROOT / "samples" / "sample_analysis.json"
 SEVERITY_RANK = {"high": 3, "med": 2, "low": 1}
 ISSUE_NAMES = {code: v[0] for code, v in coach.CUES.items()}
+ISSUE_NAMES.setdefault("HIP_PIKE", "Hips piking up")
 
-st.set_page_config(page_title="Form Coach", page_icon="💪", layout="wide")
+INK, MUTED, LINE = "#14202B", "#66707A", "#E3E7EC"
+GREEN, RED, AMBER, BLUE = "#1E9E5A", "#D9363E", "#D99A2B", "#3B6FB6"
+
+st.set_page_config(page_title="Form Coach", page_icon="🟢", layout="wide")
+
+CSS = f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+html, body, [class*="css"], .stMarkdown, .stButton button, input, textarea {{
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}}
+header[data-testid="stHeader"] {{ background: transparent; }}
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {{ display:none; }}
+[data-testid="stFileUploaderDropzone"] {{ background:#fff; border:1.5px dashed #C9D1DA; border-radius:14px; }}
+[data-testid="stExpander"] details {{ background:#fff; border-radius:12px; border-color:{LINE}; }}
+.stTabs [data-baseweb="tab"] p {{ font-weight:500; }}
+.block-container {{ max-width: 1240px; padding-top: 1.6rem; padding-bottom: 4rem; }}
+h1, h2, h3, h4 {{ font-family: 'Archivo', 'IBM Plex Sans', sans-serif; letter-spacing: -0.01em; color: {INK}; }}
+
+.fc-brand {{ display:flex; align-items:baseline; gap:.75rem; margin-bottom:.15rem; }}
+.fc-mark {{ font-family:'Archivo',sans-serif; font-weight:800; font-size:2.1rem; letter-spacing:-0.03em; color:{INK}; }}
+.fc-dot {{ width:.7rem; height:.7rem; border-radius:50%; background:{GREEN}; display:inline-block;
+           box-shadow: 1.1rem 0 0 {RED}; margin-right:1.3rem; transform: translateY(-.15rem); }}
+.fc-tag {{ color:{MUTED}; font-size:1rem; }}
+.fc-eyebrow {{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.08em;
+               text-transform:uppercase; color:{MUTED}; margin: 1.4rem 0 .45rem; }}
+
+[data-testid="stMetric"] {{ background:#fff; border:1px solid {LINE}; border-radius:14px; padding:14px 18px; }}
+[data-testid="stMetricLabel"] p {{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.06em;
+                                   text-transform:uppercase; color:{MUTED}; }}
+[data-testid="stMetricValue"] {{ font-family:'Archivo',sans-serif; font-weight:800; color:{INK}; }}
+
+div[class*="st-key-rep_"], div[class*="st-key-rep_"] > div {{ width:100%; }}
+div[class*="st-key-rep_"] button {{
+  width:100%; min-height:58px; border-radius:10px; border:1px solid {LINE}; background:#fff;
+  box-shadow: inset 0 4px 0 {GREEN}; color:{INK}; padding:.5rem .25rem .3rem;
+}}
+div[class*="st-key-rep_"] button p {{ font-family:'IBM Plex Mono',monospace; font-size:.8rem; line-height:1.3;
+  white-space:pre-line; margin:0; }}
+div[class*="st-key-rep_bad_"] button {{ box-shadow: inset 0 4px 0 {RED}; background:#FFF5F5; }}
+div[class*="st-key-rep_"] button:hover {{ border-color:{INK}; color:{INK}; }}
+div[class*="st-key-rep_"] button:focus-visible {{ outline:3px solid {BLUE}; outline-offset:2px; }}
+
+.fc-card {{ background:#fff; border:1px solid {LINE}; border-radius:14px; padding:18px 20px; }}
+.fc-headline {{ font-family:'Archivo',sans-serif; font-weight:800; font-size:1.35rem; color:{INK}; margin:0 0 .35rem; }}
+.fc-fix {{ border-left:4px solid {RED}; padding:.55rem .8rem; margin:.7rem 0; background:#FBFBFC; border-radius:0 10px 10px 0; }}
+.fc-fix b {{ color:{INK}; }}
+.fc-cue {{ display:inline-block; margin-top:.35rem; font-family:'IBM Plex Mono',monospace; font-size:.82rem;
+           background:#EAF6EF; color:#13643A; padding:.18rem .5rem; border-radius:6px; }}
+.fc-small {{ color:{MUTED}; font-size:.85rem; }}
+.fc-steps {{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:1.2rem; }}
+.fc-step {{ background:#fff; border:1px solid {LINE}; border-radius:14px; padding:16px 18px; }}
+.fc-step-n {{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; color:{MUTED}; letter-spacing:.06em; }}
+.fc-step-t {{ font-family:'Archivo',sans-serif; font-weight:800; font-size:1.05rem; color:{INK}; margin:.2rem 0 .25rem; }}
+@media (max-width: 760px) {{ .fc-steps {{ grid-template-columns:1fr; }} }}
+.fc-pill {{ display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:.72rem; padding:.12rem .5rem;
+            border-radius:99px; border:1px solid {LINE}; color:{MUTED}; margin-right:.35rem; }}
+@media (prefers-reduced-motion: reduce) {{ * {{ transition:none !important; animation:none !important; }} }}
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------- pipeline
@@ -51,14 +117,14 @@ def _mmss(t: float) -> str:
 
 
 def _worst_frames(path: str, analysis: dict, k: int = 2) -> list[bytes]:
-    """JPEGs of the k worst issues, to send to the LLM for a visual double-check."""
+    """JPEGs of the k worst issues, sent to the LLM as a visual double-check."""
     issues = [i for r in analysis.get("reps", []) for i in r.get("issues", [])]
     issues.sort(key=lambda i: (SEVERITY_RANK.get(i.get("severity"), 0), abs(i.get("value", 0))), reverse=True)
     frames = [video.grab_frame(path, i["t"]) for i in issues[:k]]
     return [f for f in frames if f]
 
 
-def run_pipeline(video_path: str | None, strict: bool) -> dict:
+def run_pipeline(video_path: str | None, strict: bool, fast: bool = False) -> dict:
     mocked, errors = [], []
 
     def stage(name, fn, fallback):
@@ -74,27 +140,123 @@ def run_pipeline(video_path: str | None, strict: bool) -> dict:
     with st.status("Analysing your set…", expanded=True) as status:
         st.write("Tracking your joints…")
         if video_path:
-            landmarks = stage("pose", lambda: pose.extract(video_path), lambda: _load(SAMPLE_LANDMARKS))
+            bar = st.progress(0.0, text="Tracking your joints, frame by frame")
+            landmarks = stage("pose", lambda: pose.extract(video_path, frame_step=2 if fast else 1,
+                                                          progress=lambda f: bar.progress(
+                min(f, 1.0), text=f"Tracking your joints, frame by frame ({f:.0%})")),
+                lambda: _load(SAMPLE_LANDMARKS))
+            bar.empty()
         else:  # demo mode
             landmarks = _load(SAMPLE_LANDMARKS)
-            mocked.append("pose")
+            mocked.append("demo clip")
 
         st.write("Measuring every rep…")
-        analysis = stage("rules", lambda: rules.analyze(landmarks, strict=strict), lambda: _load(SAMPLE_ANALYSIS))
+        analysis = stage("analysis", lambda: rules.analyze(landmarks, strict=strict),
+                         lambda: _load(SAMPLE_ANALYSIS))
 
         overlay = None
         if video_path:
             st.write("Drawing the skeleton…")
             out = str(Path(video_path).with_name(Path(video_path).stem + "_overlay.mp4"))
-            src = stage("overlay", lambda: pose.render_overlay(video_path, landmarks, analysis, out), lambda: video_path)
+            src = stage("overlay", lambda: pose.render_overlay(video_path, landmarks, analysis, out),
+                        lambda: video_path)
             overlay = video.to_browser_mp4(src)
+
+        wearable = None
+        if imu is not None:
+            try:
+                wearable = imu.simulate(landmarks)
+            except Exception:
+                errors.append(("wearable", traceback.format_exc()))
 
         st.write("Writing your coaching notes…")
         frames = _worst_frames(overlay, analysis) if overlay and "overlay" not in mocked else None
         fb = coach.feedback(analysis, frames)
         status.update(label="Analysis complete", state="complete", expanded=False)
 
-    return {"analysis": analysis, "feedback": fb, "video": overlay, "mocked": mocked, "errors": errors}
+    return {"analysis": analysis, "feedback": fb, "video": overlay, "mocked": mocked,
+            "errors": errors, "imu": wearable}
+
+
+# ---------------------------------------------------------------- charts
+
+def _rep_bands(a: dict) -> pd.DataFrame:
+    rows = [{"start": r["start"], "end": r["end"], "rep": r["n"],
+             "issues": ", ".join(ISSUE_NAMES.get(i["code"], i["code"]) for i in r["issues"])}
+            for r in a["reps"] if r["issues"]]
+    return pd.DataFrame(rows or [{"start": 0, "end": 0, "rep": 0, "issues": ""}])
+
+
+MONO_STACK = "IBM Plex Mono, ui-monospace, Menlo, Consolas, monospace"
+SANS_STACK = "IBM Plex Sans, system-ui, -apple-system, Segoe UI, sans-serif"
+
+
+def _axis():
+    return alt.Axis(labelFont=MONO_STACK, titleFont=SANS_STACK, labelColor=MUTED, titleColor=MUTED,
+                    titleFontWeight=500, gridColor="#EEF1F4", domainColor=LINE, tickColor=LINE)
+
+
+def _set_window(a: dict) -> list[float]:
+    """x-range of the set itself (first rep start -1 s .. last rep end +1 s)."""
+    t = [v for v in a["series"]["t"] if v is not None]
+    if a["reps"]:
+        return [max(0.0, a["reps"][0]["start"] - 1), a["reps"][-1]["end"] + 1]
+    return [min(t), max(t)] if t else [0, 1]
+
+
+def _series_df(a: dict) -> pd.DataFrame:
+    lo, hi = _set_window(a)
+    df = pd.DataFrame(a["series"])
+    return df[(df["t"] >= lo) & (df["t"] <= hi)]
+
+
+def elbow_chart(a: dict) -> alt.LayerChart:
+    th = a["thresholds"]
+    s = _series_df(a)
+    xs = alt.Scale(domain=_set_window(a), nice=False)
+    rects = alt.Chart(_rep_bands(a)).mark_rect(opacity=0.12, color=RED).encode(
+        x=alt.X("start:Q", scale=xs), x2="end:Q", tooltip=["rep", "issues"])
+    line = alt.Chart(s).mark_line(color=GREEN, strokeWidth=2, clip=True).encode(
+        x=alt.X("t:Q", title="Time (s)", axis=_axis(), scale=xs),
+        y=alt.Y("elbow:Q", title="Elbow angle (°)", scale=alt.Scale(domain=[30, 185]), axis=_axis()))
+    refs = pd.DataFrame({"y": [th["depth_max_elbow"], th["lockout_min_elbow"]],
+                         "label": ["Depth target", "Lockout target"]})
+    rule = alt.Chart(refs).mark_rule(strokeDash=[5, 4], color=MUTED).encode(y="y:Q", tooltip=["label", "y"])
+    return (rects + line + rule).properties(height=210).configure_view(stroke=None)
+
+
+def hip_chart(a: dict) -> alt.LayerChart:
+    tol = a["thresholds"]["hip_tolerance"]
+    s = _series_df(a)
+    xs = alt.Scale(domain=_set_window(a), nice=False)
+    ys = alt.Scale(domain=[-35, 35], nice=False)
+    line = alt.Chart(s).mark_line(color=BLUE, strokeWidth=2, clip=True).encode(
+        x=alt.X("t:Q", title="Time (s)", axis=_axis(), scale=xs),
+        y=alt.Y("hip_dev:Q", title="Hips (°)", scale=ys,
+                axis=alt.Axis(values=[-30, -15, 0, 15, 30], labelFont=MONO_STACK, titleFont=SANS_STACK,
+                              labelColor=MUTED, titleColor=MUTED, gridColor="#EEF1F4", domainColor=LINE,
+                              tickColor=LINE)))
+    refs = pd.DataFrame({"y": [tol, -tol], "label": [f"Sag limit +{tol}°", f"Pike limit -{tol}°"]})
+    rule = alt.Chart(refs).mark_rule(strokeDash=[5, 4], color=MUTED).encode(
+        y=alt.Y("y:Q", scale=ys), tooltip=["label"])
+    return (line + rule).properties(height=190).configure_view(stroke=None)
+
+
+def imu_chart(w: dict) -> alt.Chart:
+    rows = []
+    for name, label in (("chest", "Chest strap"), ("wrist", "Smartwatch")):
+        s = w["sensors"].get(name)
+        if not s:
+            continue
+        for t, acc in zip(s["t"][::2], s["acc_world"][::2]):
+            rows.append({"t": t, "acc": (acc[0] ** 2 + acc[1] ** 2) ** 0.5, "sensor": label})
+    df = pd.DataFrame(rows)
+    return alt.Chart(df).mark_line(strokeWidth=1.6).encode(
+        x=alt.X("t:Q", title="Time (s)", axis=_axis()),
+        y=alt.Y("acc:Q", title="Acceleration (m/s², 9.81 = still)", scale=alt.Scale(zero=False), axis=_axis()),
+        color=alt.Color("sensor:N", scale=alt.Scale(range=[AMBER, BLUE]),
+                        legend=alt.Legend(orient="top", title=None, labelFont=MONO_STACK)),
+    ).properties(height=220).configure_view(stroke=None)
 
 
 # ---------------------------------------------------------------- UI pieces
@@ -109,52 +271,51 @@ def _on_rep_select():
         _jump_to(st.session_state.rep_starts[rows[0]])
 
 
-def elbow_chart(a: dict) -> alt.LayerChart:
-    th = a["thresholds"]
-    s = pd.DataFrame(a["series"])
-    bad = pd.DataFrame([
-        {"start": r["start"], "end": r["end"], "rep": r["n"],
-         "issues": ", ".join(ISSUE_NAMES.get(i["code"], i["code"]) for i in r["issues"])}
-        for r in a["reps"] if r["issues"]
-    ] or [{"start": 0, "end": 0, "rep": 0, "issues": ""}])
-    lines = pd.DataFrame({"y": [th["depth_max_elbow"], th["lockout_min_elbow"]],
-                          "label": ["Depth target", "Lockout target"]})
-    rects = alt.Chart(bad).mark_rect(opacity=0.15, color="#e4572e").encode(
-        x="start:Q", x2="end:Q", tooltip=["rep", "issues"])
-    line = alt.Chart(s).mark_line(color="#2b7bba").encode(
-        x=alt.X("t:Q", title="Time (s)"),
-        y=alt.Y("elbow:Q", title="Elbow angle (°)", scale=alt.Scale(domain=[40, 185])))
-    rule = alt.Chart(lines).mark_rule(strokeDash=[5, 4], color="#555").encode(y="y:Q", tooltip=["label", "y"])
-    return (rects + line + rule).properties(height=220)
+def header():
+    st.markdown(
+        '<div class="fc-brand"><span class="fc-dot"></span><span class="fc-mark">Form Coach</span></div>'
+        '<div class="fc-tag">Film a push-up set from the side. Every rep gets measured, then you get the '
+        'two fixes that matter most.</div>', unsafe_allow_html=True)
 
 
-def hip_chart(a: dict) -> alt.LayerChart:
-    tol = a["thresholds"]["hip_tolerance"]
-    s = pd.DataFrame(a["series"])
-    band = alt.Chart(pd.DataFrame({"lo": [-tol], "hi": [tol]})).mark_rect(opacity=0.12, color="#3cb371").encode(
-        y="lo:Q", y2="hi:Q")
-    line = alt.Chart(s).mark_line(color="#8e44ad").encode(
-        x=alt.X("t:Q", title="Time (s)"),
-        y=alt.Y("hip_dev:Q", title="Hips off line (°, + = sag)", scale=alt.Scale(domain=[-30, 30])))
-    return (band + line).properties(height=180)
+def rep_ribbon(reps: list[dict]):
+    st.markdown('<div class="fc-eyebrow">Every rep · tap one to jump the video there</div>',
+                unsafe_allow_html=True)
+    per_row = 8 if len(reps) > 8 else max(len(reps), 1)
+    for start in range(0, len(reps), per_row):
+        chunk = reps[start:start + per_row]
+        cols = st.columns(per_row, gap="small")
+        for col, r in zip(cols, chunk):
+            codes = [i["code"] for i in r["issues"]]
+            short = {"SHALLOW": "depth", "NO_LOCKOUT": "lockout", "HIP_SAG": "sag", "HIP_PIKE": "pike",
+                     "HEAD_DROP": "head", "FAST_DESCENT": "fast"}
+            label = f"{r['n']}\n" + (short.get(codes[0], codes[0].lower()) if codes else "✓")
+            key = f"rep_{'bad_' if codes else ''}{r['n']}"
+            col.button(label, key=key, on_click=_jump_to, args=(r["start"],),
+                       help=(" · ".join(i.get("message", i["code"]) for i in r["issues"]) or "Clean rep")
+                       + f" — {_mmss(r['start'])}")
 
 
 def coach_card(fb: dict):
     who = "Claude" if fb.get("source") == "llm" else "rule-based coach"
-    st.subheader(fb.get("headline", "Your feedback"))
-    st.write(fb.get("summary", ""))
-    for n, p in enumerate(fb.get("priorities", []), 1):
-        with st.container(border=True):
-            st.markdown(f"**{n}. {p.get('issue', '')}**  \n{p.get('evidence', '')}")
-            if p.get("why"):
-                st.caption(p["why"])
-            if p.get("cue"):
-                st.success(f"Cue: {p['cue']}")
+    fixes = "".join(
+        f'<div class="fc-fix"><b>{n}. {p.get("issue", "")}</b><br>'
+        f'<span class="fc-small">{p.get("evidence", "")}</span>'
+        + (f'<br><span class="fc-small">{p["why"]}</span>' if p.get("why") else "")
+        + (f'<br><span class="fc-cue">{p["cue"]}</span>' if p.get("cue") else "") + "</div>"
+        for n, p in enumerate(fb.get("priorities", []), 1))
+    good = ""
     if fb.get("positives"):
-        st.markdown("**What went well:** " + " · ".join(fb["positives"]))
+        good = '<div class="fc-small" style="margin-top:.6rem"><b style="color:#13643A">What went well</b> · ' \
+               + " · ".join(fb["positives"]) + "</div>"
+    st.markdown(
+        f'<div class="fc-card"><div class="fc-eyebrow" style="margin-top:0">Coach · {who}</div>'
+        f'<div class="fc-headline">{fb.get("headline", "Your feedback")}</div>'
+        f'<div>{fb.get("summary", "")}</div>{fixes}{good}</div>', unsafe_allow_html=True)
     if str(fb.get("frame_check", "")).startswith("suspect"):
         st.warning(f"Tracking check: {fb['frame_check']}")
-    st.caption(f"Coach: {who}" + (f" (LLM error: {fb['llm_error']})" if fb.get("llm_error") else ""))
+    if fb.get("llm_error"):
+        st.caption(f"LLM unavailable, used the rule-based coach ({fb['llm_error']})")
 
 
 def render(res: dict):
@@ -162,57 +323,67 @@ def render(res: dict):
     reps, summ = a["reps"], a["summary"]
 
     if res["mocked"]:
-        st.warning("Mock data in use for: **" + ", ".join(res["mocked"]) + "**. "
-                   "Numbers below come from samples/sample_*.json, not your video.")
+        st.info("Sample data in use for: **" + ", ".join(res["mocked"]) + "**. Upload your own clip to "
+                "analyse it.", icon="ℹ️")
     for name, tb in res["errors"]:
-        with st.expander(f"⚠️ {name} crashed (fell back to mock data)"):
+        with st.expander(f"{name} failed and fell back to sample data"):
             st.code(tb)
+    for w in a.get("warnings", []):
+        st.warning(w)
     if a.get("confidence", 1) < 0.6:
-        st.error("We can't see you clearly enough to judge form. Film from the side, landscape, "
-                 "with your whole body from head to heels in frame, then upload again.")
+        st.error("We can't see you clearly enough to judge form. Film from the side, landscape, with your "
+                 "whole body from head to heels in frame, then upload again.")
 
     total, clean, fat = summ["rep_count"], summ["clean_reps"], summ.get("fatigue_from_rep")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Reps", total)
     c2.metric("Clean reps", f"{clean}/{total}")
     c3.metric("Form score", f"{round(100 * clean / total) if total else 0}%")
-    c4.metric("Form held until", f"Rep {fat - 1}" if fat else ("All reps" if clean == total else "—"))
-    st.caption(f"Judged against: {a.get('standard', '')} · tracking confidence {a.get('confidence', 0):.0%}")
+    c4.metric("Fatigue", f"From rep {fat}" if fat else ("None" if total else "—"))
+    st.markdown(f'<span class="fc-pill">{a.get("standard", "")}</span>'
+                f'<span class="fc-pill">tracking {a.get("confidence", 0):.0%}</span>'
+                f'<span class="fc-pill">{a.get("side", "")} side to camera</span>', unsafe_allow_html=True)
 
+    if reps:
+        rep_ribbon(reps)
+
+    st.markdown('<div class="fc-eyebrow">Your set</div>', unsafe_allow_html=True)
     left, right = st.columns([3, 2], gap="large")
     with left:
         if res["video"]:
             st.video(res["video"], start_time=int(st.session_state.get("jump", 0)), autoplay=True, muted=True)
         else:
-            st.info("Demo mode: no video loaded. Upload a clip to see your overlay here.")
-        flagged = [r for r in reps if r["issues"]]
-        if flagged:
-            st.caption("Jump to a flagged rep:")
-            cols = st.columns(min(len(flagged), 6))
-            for col, r in zip(cols * 3, flagged):
-                col.button(f"Rep {r['n']} · {_mmss(r['bottom'])}", key=f"jump{r['n']}",
-                           on_click=_jump_to, args=(r["start"],), width="stretch")
+            st.markdown('<div class="fc-card fc-small">Demo mode has no video. Upload a clip to see your '
+                        'skeleton overlay here, with the faulty joints turning red as they happen.</div>',
+                        unsafe_allow_html=True)
     with right:
         coach_card(fb)
 
-    st.markdown("#### Every rep, measured")
-    st.altair_chart(elbow_chart(a), width="stretch")
-    st.altair_chart(hip_chart(a), width="stretch")
-
-    st.session_state.rep_starts = [r["start"] for r in reps]
-    table = pd.DataFrame([{
-        "Rep": r["n"],
-        "Time": _mmss(r["start"]),
-        "Bottom elbow °": r["min_elbow"],
-        "Top elbow °": r["max_elbow"],
-        "Hips off line °": r["max_hip_dev"],
-        "": "✅" if not r["issues"] else "⚠️",
-        "Issues": " · ".join(i.get("message", i["code"]) for i in r["issues"]),
-        "Coach note": fb.get("rep_notes", {}).get(str(r["n"]), ""),
-    } for r in reps])
-    st.caption("Click a row to jump the video to that rep.")
-    st.dataframe(table, hide_index=True, key="rep_table", on_select=_on_rep_select,
-                 selection_mode="single-row", width="stretch")
+    tab_charts, tab_reps, tab_wear = st.tabs(["Angles", "Rep by rep", "Wearable (simulated)"])
+    with tab_charts:
+        st.altair_chart(elbow_chart(a), width="stretch")
+        st.altair_chart(hip_chart(a), width="stretch")
+        st.caption("Hips are measured against your own line at the top of each rep, so loose clothing "
+                   "doesn't read as sagging.")
+    with tab_reps:
+        st.session_state.rep_starts = [r["start"] for r in reps]
+        table = pd.DataFrame([{
+            "Rep": r["n"], "Time": _mmss(r["start"]),
+            "Bottom elbow °": r["min_elbow"], "Top elbow °": r["max_elbow"],
+            "Hips off line °": r["max_hip_dev"], "": "✅" if not r["issues"] else "⚠️",
+            "Issues": " · ".join(i.get("message", i["code"]) for i in r["issues"]),
+            "Coach note": fb.get("rep_notes", {}).get(str(r["n"]), ""),
+        } for r in reps])
+        st.caption("Click a row to jump the video to that rep.")
+        st.dataframe(table, hide_index=True, key="rep_table", on_select=_on_rep_select,
+                     selection_mode="single-row", width="stretch")
+    with tab_wear:
+        if res.get("imu") and res["imu"].get("sensors"):
+            st.altair_chart(imu_chart(res["imu"]), width="stretch")
+            st.caption("What a chest strap and a smartwatch would have recorded during this set, simulated "
+                       "from the video: every clip doubles as wearable training data.")
+        else:
+            st.caption("No wearable simulation for this clip.")
 
     if st.session_state.get("debug"):
         with st.expander("Raw analysis JSON"):
@@ -223,47 +394,61 @@ def render(res: dict):
 
 # ---------------------------------------------------------------- page
 
-with st.sidebar:
-    st.header("Settings")
-    standard = st.radio("Judge against", ["Test standard (90°)", "Strict (chest near floor)"])
-    strict = standard.startswith("Strict")
-    st.toggle("Show raw JSON", key="debug")
-    st.divider()
-    if os.getenv("ANTHROPIC_API_KEY"):
-        st.caption(f"Coach: Claude (`{coach.MODEL}`)")
-    else:
-        st.caption("Coach: rule-based (no ANTHROPIC_API_KEY in .env)")
+header()
 
-st.title("💪 Form Coach")
-st.write("Upload a push-up set filmed from the side. We measure every rep, then coach you on what matters most.")
-
-with st.expander("How to film (read this first)"):
-    st.markdown(
-        "- **Side view**, phone in **landscape**, about 2–3 m away\n"
-        "- Whole body in frame, **head to heels**, the whole time\n"
-        "- Good light, one person in shot, plain background if you can\n"
-        "- Keep it under 30 seconds"
-    )
-
-up_col, demo_col = st.columns([4, 1], vertical_alignment="bottom")
+st.markdown('<div class="fc-eyebrow">Analyse a set</div>', unsafe_allow_html=True)
+opt_col, gear_col = st.columns([5, 1], vertical_alignment="center")
+with opt_col:
+    standard = st.segmented_control("Judge against", ["Test standard (90°)", "Strict (chest near floor)"],
+                                    default="Test standard (90°)", label_visibility="collapsed")
+    strict = (standard or "").startswith("Strict")
+with gear_col:
+    with st.popover("Settings", width="stretch"):
+        st.toggle("Fast tracking (2× faster)", key="fast",
+                  help="Runs the pose model on every other frame and fills the gaps. Rep counts stay the "
+                       "same; borderline form calls (e.g. lockout within a few degrees) can differ.")
+        st.toggle("Show raw JSON", key="debug")
+        st.caption(f"Coach: Claude (`{coach.MODEL}`)" if os.getenv("ANTHROPIC_API_KEY")
+                   else "Coach: rule-based. Add ANTHROPIC_API_KEY to .env to coach with Claude.")
+up_col, demo_col = st.columns([5, 1], vertical_alignment="bottom")
 with up_col:
-    upload = st.file_uploader("Your video", type=["mp4", "mov", "m4v", "avi", "webm"])
+    upload = st.file_uploader("Side-view video of one push-up set (mp4, mov, under ~60 s)",
+                              type=["mp4", "mov", "m4v", "avi", "webm"])
 with demo_col:
-    if st.button("Try the demo", width="stretch"):
+    if st.button("Try the demo", width="stretch", type="primary"):
         st.session_state.demo = True
+
+with st.expander("How to film for the best results"):
+    st.markdown(
+        "- **Side view**, phone in **landscape**, about 2–3 m away at hip height\n"
+        "- Whole body in frame, **head to heels**, the whole time\n"
+        "- One person in shot; loose clothes are fine\n"
+        "- Start filming before the first rep; getting up afterwards is ignored automatically")
 
 key, video_path = None, None
 if upload is not None:
     st.session_state.demo = False
     video_path, digest = video.save_upload(upload.getvalue(), Path(upload.name).suffix.lower() or ".mp4")
-    key = (digest, strict)
+    key = (digest, strict, st.session_state.get("fast", False))
 elif st.session_state.get("demo"):
     key = ("demo", strict)
 
 if key and st.session_state.get("result_key") != key:
     st.session_state.jump = 0.0
-    st.session_state.result = run_pipeline(video_path, strict)
+    st.session_state.result = run_pipeline(video_path, strict, st.session_state.get("fast", False))
     st.session_state.result_key = key
 
 if key and st.session_state.get("result"):
     render(st.session_state.result)
+else:
+    st.markdown(
+        '<div class="fc-steps">'
+        '<div class="fc-step"><div class="fc-step-n">STEP 1</div><div class="fc-step-t">Film from the side</div>'
+        '<div class="fc-small">Phone in landscape on the floor, 2–3 m away, head to heels in frame. '
+        'Baggy clothes are fine.</div></div>'
+        '<div class="fc-step"><div class="fc-step-n">STEP 2</div><div class="fc-step-t">Upload the set</div>'
+        '<div class="fc-small">We track 19 joints in every frame and find each rep, ignoring getting into '
+        'position and standing up.</div></div>'
+        '<div class="fc-step"><div class="fc-step-n">STEP 3</div><div class="fc-step-t">Fix what matters</div>'
+        '<div class="fc-small">See every rep scored, watch your skeleton turn red where form breaks, and get '
+        'the two cues worth fixing first.</div></div></div>', unsafe_allow_html=True)
