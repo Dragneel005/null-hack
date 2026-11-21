@@ -4,6 +4,10 @@
 
 <p align="center"><b>Film a push-up set from the side. Every rep gets measured, coached,<br>and turned into labelled training data, including the wearable data you never recorded.</b></p>
 
+<p align="center"><b>▶ Live demo: <a href="https://receiving-sandy-travesti-michigan.trycloudflare.com">receiving-sandy-travesti-michigan.trycloudflare.com</a></b><br>
+<sub>Hosted from a team laptop for NullHacks judging. Tabs: Analyze · Leaderboard (no login; videos are deleted after analysis, only username + score are kept) · Under the hood.<br>
+Branch <code>final-demo</code> also adds: baggy-clothes tolerance in rep grading, the leaderboard, and a Hugging Face Docker setup (<code>Dockerfile</code>, <code>deploy/deploy_hf.py</code>).</sub></p>
+
 <p align="center">
   <a href="#run-it">Run it</a> ·
   <a href="#what-it-does">What it does</a> ·
