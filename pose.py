@@ -134,6 +134,14 @@ def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
     }
 
 
+
+def render_overlay(video_path: str, landmarks: dict, analysis: dict | None, out_path: str | None = None,
+                   progress=None) -> str:
+    """Alias used by app.py; see overlay.render (CONTRACT.md §5)."""
+    import overlay
+    return overlay.render(video_path, landmarks, analysis, out_path=out_path, progress=progress)
+
+
 if __name__ == "__main__":
     import time
     src = sys.argv[1]

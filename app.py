@@ -3,7 +3,7 @@
     streamlit run app.py
 
 Works from minute one: any pipeline stage that isn't implemented yet (or crashes) falls
-back to data/sample_*.json, and a yellow banner says which stages are mocked.
+back to samples/sample_*.json, and a yellow banner says which stages are mocked.
 """
 from __future__ import annotations
 
@@ -19,11 +19,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from formcoach import coach, pose, rules, video  # noqa: E402
+import coach  # noqa: E402
+import pose  # noqa: E402
+import video  # noqa: E402
+
+try:
+    import analysis as rules  # noqa: E402  (Person 2; see CONTRACT.md §2)
+except ImportError:  # not written yet -> run_pipeline falls back to samples/sample_analysis.json
+    class rules:  # noqa: N801
+        @staticmethod
+        def analyze(*_args, **_kwargs):
+            raise NotImplementedError("analysis.py not written yet")
 
 ROOT = Path(__file__).resolve().parent
-SAMPLE_LANDMARKS = ROOT / "data" / "sample_landmarks.json"
-SAMPLE_ANALYSIS = ROOT / "data" / "sample_analysis.json"
+SAMPLE_LANDMARKS = ROOT / "samples" / "sample_landmarks.json"
+SAMPLE_ANALYSIS = ROOT / "samples" / "sample_analysis.json"
 SEVERITY_RANK = {"high": 3, "med": 2, "low": 1}
 ISSUE_NAMES = {code: v[0] for code, v in coach.CUES.items()}
 
@@ -153,7 +163,7 @@ def render(res: dict):
 
     if res["mocked"]:
         st.warning("Mock data in use for: **" + ", ".join(res["mocked"]) + "**. "
-                   "Numbers below come from data/sample_*.json, not your video.")
+                   "Numbers below come from samples/sample_*.json, not your video.")
     for name, tb in res["errors"]:
         with st.expander(f"⚠️ {name} crashed (fell back to mock data)"):
             st.code(tb)

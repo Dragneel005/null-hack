@@ -1,6 +1,11 @@
 # Module contract (everyone codes against this)
 
-Pipeline:  `video → pose.extract → analysis.analyze → physics.simulate → coach.coach → overlay.render → app.py`
+Pipeline:  `video → pose.extract → analysis.analyze → physics.simulate → coach.feedback → overlay.render → app.py`
+Video I/O: `video.py` (save_upload, to_browser_mp4, grab_frame) — the only module that touches codecs.
+
+**Batch 1 decision (16:10):** one format per seam. Analysis + report formats below are the ones `app.py`, `coach.py` and
+`samples/sample_analysis.json` already use; the richer fields from the first draft are kept as *optional*. Landmarks = the
+19-name `l_shoulder` format of `pose.extract` / `synth`. Fault codes everywhere: `SHALLOW NO_LOCKOUT HIP_SAG HIP_PIKE HEAD_DROP FAST_DESCENT`.
 Theme layer: `synth.py` (simulated athletes → labeled dataset) + `benchmark.py` (score our analyzer on simulated ground truth, sim-to-real classifier).
 
 Python 3.10, deps in `requirements.txt`, venv at `.venv/` (`.venv/bin/python`). Run app: `.venv/bin/streamlit run app.py`.
@@ -24,39 +29,35 @@ landmarks = {
 Landmark names: `nose l_ear r_ear l_shoulder r_shoulder l_elbow r_elbow l_wrist r_wrist l_hip r_hip l_knee r_knee l_ankle r_ankle l_heel r_heel l_foot r_foot`.
 Real samples: `samples/landmarks_demo_side.json` (beach silhouette, 640x480, 51 s, **ground truth = 6 slow full reps**, good form, long holds at top between reps) and `samples/landmarks_demo_army.json` (20 s, 1280x720, has camera cuts / multiple people — robustness test, hand-release push-ups, ~2-3 reps visible).
 
-## 2. `analysis.py` — `analyze(landmarks, thresholds=None) -> analysis`
+## 2. `analysis.py` — `analyze(landmarks, strict=False, thresholds=None) -> analysis`
+`app.py` imports it as `rules` (`import analysis as rules`). `strict=True` = chest-near-floor standard, False = 90° test standard.
 
 ```jsonc
 analysis = {
-  "exercise": "pushup", "side": "left" | "right",
-  "confidence": 0.0-1.0,                 // mean visibility of key joints on chosen side × fraction of frames detected
-  "confidence_ok": true,                 // false -> UI shows "film from the side, whole body in frame"
-  "warnings": ["..."],                   // human-readable (low visibility, not side view, too short, ...)
-  "thresholds": {...},                   // effective thresholds used
-  "series": {                            // per-frame, same length as landmarks.frames; null where no person
-    "t": [...], "elbow": [...deg], "body_line": [...deg, 180 = straight shoulder-hip-ankle],
-    "hip_dev": [...deg signed: + = sag (hip below line), - = pike (hip above line)],
-    "head": [...deg ear-shoulder-hip], "phase": ["up"|"down"|"bottom"|"top"|null ...]
-  },
+  "exercise": "pushup",
+  "standard": "Test standard (90°)",          // human-readable, shown in the UI
+  "side": "left" | "right",
+  "confidence": 0.0-1.0,                      // mean visibility of key joints on chosen side x fraction of frames detected; UI warns < 0.6
+  "thresholds": {"depth_max_elbow": 90, "lockout_min_elbow": 160, "hip_tolerance": 15},   // REQUIRED keys (charts use them)
+  "series": {"t": [...], "elbow": [...deg], "hip_dev": [...deg signed: + = sag, - = pike]},  // REQUIRED, same length, null where no person
   "reps": [{
-    "n": 1, "start": 0.4, "bottom": 1.1, "end": 1.8,          // seconds
+    "n": 1, "start": 0.4, "bottom": 1.1, "end": 1.8,     // seconds
     "min_elbow": 84.0, "max_elbow": 165.0,
-    "max_hip_sag": 6.0, "max_hip_pike": 0.0, "min_head": 160.0,
-    "descent_s": 0.7, "ascent_s": 0.6,
-    "score": 0-100,
-    "issues": [{"code": "HIP_SAG", "t": 1.1, "t_start": 0.9, "t_end": 1.4,
-                "value": 16.0, "severity": "low"|"med"|"high", "msg": "Hips sagged 16° below the shoulder-ankle line"}]
+    "max_hip_dev": 6.0,                                   // signed deg, largest |hip_dev| in the rep
+    "issues": [{"code": "HIP_SAG", "t": 1.1, "value": 16.0, "severity": "low"|"med"|"high",
+                "message": "Hips 16° below the shoulder-ankle line",
+                "t_start": 0.9, "t_end": 1.4}]            // t_start/t_end optional (overlay uses ±0.35 s around t otherwise)
+    // optional extras: "descent_s", "ascent_s", "score", "min_head"
   }],
-  "summary": {
-    "rep_count": 6, "clean_reps": 5, "avg_score": 88.0,
-    "fatigue_from_rep": 7 | null,        // first rep where form/tempo degrades persistently vs first reps
-    "issue_counts": {"HIP_SAG": 2, ...},
-    "avg_descent_s": 0.9, "avg_ascent_s": 0.8, "total_time_s": 40.0
-  }
+  "summary": {"rep_count": 10, "clean_reps": 6, "fatigue_from_rep": 7 | null
+              /* optional: "avg_score", "issue_counts", "avg_descent_s", "avg_ascent_s", "total_time_s" */},
+  "warnings": ["..."]                                     // optional
 }
 ```
-**Fault codes (shared with synth.py):** `SHALLOW` (min elbow never < depth threshold, ~95°), `NO_LOCKOUT` (max elbow never > ~155°), `HIP_SAG`, `HIP_PIKE` (|hip_dev| > ~12-15°), `HEAD_DROP` (head angle well below body line), `FAST_DESCENT` (descent < ~0.4 s).
-Rep counting: hysteresis state machine on smoothed elbow angle (down < ~100°, up > ~150°), with min-rep-duration guard; must work for both slow reps with long top holds and fast reps. Pick side with higher visibility (per clip, not per frame).
+Fault codes: `SHALLOW` (min elbow never < depth threshold), `NO_LOCKOUT` (max elbow never > lockout threshold), `HIP_SAG` / `HIP_PIKE`
+(|hip_dev| > hip_tolerance), `HEAD_DROP` (ear-shoulder-hip well below body line), `FAST_DESCENT` (descent < ~0.4 s).
+Rep counting: hysteresis on smoothed elbow angle (down < ~100°, up > ~150°) with a min-rep-duration guard; must handle slow reps
+with long top holds. Pick side with higher visibility (per clip). Test against `synth.generate(...)` ground truth.
 
 ## 3. `physics.py` — `simulate(landmarks, analysis, body_mass_kg=75.0, height_m=1.75) -> physics`
 Rigid multi-segment body model (de Leva / Dempster segment mass fractions & COM locations) from the 2D side-view joints, scaled pixel→metres using body height. Static + dynamic (COM acceleration) equilibrium on two supports (hands, feet).
@@ -76,19 +77,25 @@ physics = {
 ```
 Null in series where no person. Must be physically sane: hand load ≈ 0.6-0.75 of body weight in plank (literature: ~64% top, ~75% bottom).
 
-## 4. `coach.py` — `coach(analysis, physics=None, use_llm=True) -> report`
+## 4. `coach.py` (Pary) — `feedback(analysis, frames=None) -> report`
 ```jsonc
-report = {"source": "rules" | "claude",
-          "headline": "6 reps, 5 clean — strong set", "grade": "A"|"B"|"C"|"D",
-          "summary": "2-3 sentences",
-          "top_fixes": [{"title": "Keep hips in line", "cue": "squeeze glutes, ribs down", "why": "...", "reps": [7, 8]}],   // max 2
-          "strengths": ["..."], "per_rep": [{"n": 1, "note": "..."}],
-          "next_session": "concrete plan, e.g. 3x6 with 2s descent"}
+report = {"source": "llm" | "fallback", "headline": "6 reps, 5 clean — strong set", "summary": "2-3 sentences",
+          "priorities": [{"issue": "Hips sagging", "evidence": "Reps 7–10 (from 0:12), worst 16°", "why": "...", "cue": "..."}],  // max 2
+          "positives": ["..."], "rep_notes": {"7": "note"}, "frame_check": "ok" | "suspect: ..." | "not checked",
+          "llm_error": "..."}   // only when the LLM failed and it fell back
 ```
-Rules-based always works offline. If `use_llm` and `ANTHROPIC_API_KEY` is set, ask Claude (anthropic SDK) for the same JSON, grounded only in the numbers; on any error fall back to rules.
+`frames` = JPEG bytes of the worst moments (`video.grab_frame`). Rule-based fallback always works offline; with
+`ANTHROPIC_API_KEY` it asks Claude for the same JSON, grounded only in the numbers.
 
-## 5. `overlay.py` — `render(video_path, landmarks, analysis, physics=None, out_path=None, progress=None) -> str`
-Draws skeleton (green OK, joints/segments red during an issue window), HUD: rep counter, elbow angle, current issue text, stress bar. Writes browser-playable **H.264 yuv420p mp4** (OpenCV write → `ffmpeg -vcodec libx264 -pix_fmt yuv420p -movflags +faststart`). Also `snapshot(video_path, landmarks, analysis, t) -> np.ndarray RGB` for worst-rep thumbnails.
+## 5. `overlay.py` (DONE) — `render(video_path, landmarks, analysis=None, physics=None, out_path=None, progress=None) -> str`
+Skeleton of the camera side (green), joints of an active issue red (HIP_SAG/PIKE→hip, SHALLOW/NO_LOCKOUT→elbow, HEAD_DROP→ear,
+FAST_DESCENT→shoulder+elbow), HUD: rep counter, elbow angle, current issue message. Returns a browser-playable H.264 mp4
+(default `<video>_overlay.mp4`). `pose.render_overlay(video_path, landmarks, analysis, out_path)` is an alias used by `app.py`.
+
+## 5a. `video.py` (DONE) — video file I/O
+`save_upload(data, suffix, directory=None) -> (path, digest)` (content-addressed, under `outputs/uploads/`) ·
+`to_browser_mp4(path) -> path` (H.264/yuv420p/faststart via imageio-ffmpeg; returns `path` unchanged if already H.264) ·
+`grab_frame(path, t, max_width=960) -> JPEG bytes | None`.
 
 ## 6. `synth.py` — simulated athletes (THEME)
 - `generate(n=500, seed=0, faults="mixed", camera="random") -> list[sample]` — procedural kinematic push-up generator: sample anthropometrics (height, segment proportions), rep count, tempo, depth, fault injection (`SHALLOW, NO_LOCKOUT, HIP_SAG, HIP_PIKE, HEAD_DROP, FAST_DESCENT`, with magnitudes), fatigue drift, camera (distance, height, yaw off side-view, fps, resolution), keypoint noise / jitter / dropouts. Forward kinematics in 3D → project to 2D pixels.

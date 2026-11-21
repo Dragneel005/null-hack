@@ -19,7 +19,7 @@ CUES = {
     "SHALLOW":      ("Not deep enough", "Partial reps skip the hardest part of the range, where most strength is built.", "Lower until your elbows hit 90°, chest towards the floor."),
     "NO_LOCKOUT":   ("No lockout at the top", "Stopping short keeps tension off the triceps and makes reps not count in a test.", "Push the floor away until your arms are straight."),
     "HIP_SAG":      ("Hips sagging", "A sagging midsection shifts load onto the lower back.", "Squeeze your glutes and pull your ribs down."),
-    "PIKE":         ("Hips piking up", "Raising the hips shortens the range and takes load off the chest.", "Body in one straight plank line, hips level with shoulders."),
+    "HIP_PIKE":     ("Hips piking up", "Raising the hips shortens the range and takes load off the chest.", "Body in one straight plank line, hips level with shoulders."),
     "HEAD_DROP":    ("Head dropping", "Leading with the head strains the neck and fakes depth.", "Keep your gaze slightly ahead of your hands, neck long."),
     "FAST_DESCENT": ("Dropping too fast", "Falling into the bottom loses control and stresses the shoulders.", "Take about one second to lower yourself."),
 }
