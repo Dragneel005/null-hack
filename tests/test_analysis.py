@@ -96,3 +96,15 @@ def test_real_beach_clip_has_six_reps():
     lms = json.loads((ROOT / "samples" / "landmarks_demo_side.json").read_text())
     a = analysis.analyze(lms)
     assert a["summary"]["rep_count"] == 6
+
+
+def test_real_baggy_clothes_clip_has_fifteen_reps_and_ignores_kneeling_after():
+    """Side-view set in a loose hoodie and trousers; 15 reps counted by hand, then she kneels up."""
+    lms = json.loads((ROOT / "samples" / "landmarks_baggy_15reps.json").read_text())
+    a = analysis.analyze(lms)
+    assert a["summary"]["rep_count"] == 15
+    hand_counted_bottoms = [1.0, 2.6, 4.1, 5.5, 7.0, 8.4, 9.9, 11.4, 12.9, 14.3, 15.9, 17.4, 19.1, 20.8, 22.5]
+    for r, b in zip(a["reps"], hand_counted_bottoms):
+        assert abs(r["bottom"] - b) < 0.4, (r["n"], r["bottom"], b)
+    assert a["reps"][-1]["end"] < 24.0                 # kneeling from ~24 s is not a rep
+    assert not any(i["code"] == "HIP_SAG" for r in a["reps"] for i in r["issues"])

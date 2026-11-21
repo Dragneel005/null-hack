@@ -4,7 +4,7 @@
                           "cycles", "in_pushup": [bool per frame]}
 
 A frame is in push-up posture when the body (shoulder->ankle) is near horizontal, the
-wrists are below the shoulders and down at floor level with the feet. Posture runs of
+legs are straight (knee > 130°), and the wrists are below the shoulders, down at floor level. Posture runs of
 >= 0.6 s are segments (this trims getting into position and standing up). A clip is a
 push-up set if a segment contains at least one elbow bend-and-straighten cycle (a descent
 that never comes back up counts, with low confidence); posture without either is a plank hold. Works on pose.extract and synth landmarks (pixels, y down).
@@ -15,6 +15,7 @@ import math
 
 MAX_TILT_DEG = 40          # body line vs horizontal
 FLOOR_TOL = 0.35           # |wrist_y - ankle_y| / body length
+MIN_KNEE_DEG = 130         # legs straight: kneeling / child's pose / getting up are not push-ups
 MIN_SEGMENT_S = 0.6
 MERGE_GAP_S = 0.4
 CYCLE_DOWN, CYCLE_UP = 125.0, 145.0
@@ -40,7 +41,8 @@ def _posture(lm, s):
     tilt = math.degrees(math.atan2(abs(dy), abs(dx)))
     hands_down = wr[1] > sh[1]
     on_floor = abs(wr[1] - an[1]) / body < FLOOR_TOL
-    return tilt, hands_down and on_floor and tilt < MAX_TILT_DEG
+    legs_straight = _angle(lm[f"{s}_hip"], lm[f"{s}_knee"], an) > MIN_KNEE_DEG
+    return tilt, hands_down and on_floor and legs_straight and tilt < MAX_TILT_DEG
 
 
 def _runs(flags, t):

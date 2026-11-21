@@ -75,26 +75,43 @@ def _fill(x):
 
 # ---------------------------------------------------------------- reps
 
+def _runs(mask):
+    runs, i = [], 0
+    while i < len(mask):
+        if mask[i]:
+            j = i
+            while j + 1 < len(mask) and mask[j + 1]:
+                j += 1
+            runs.append((i, j))
+            i = j + 1
+        else:
+            i += 1
+    return runs
+
+
 def _find_reps(t, elbow, in_pushup, fps):
-    e = _fill(np.where(in_pushup, elbow, np.nan))
-    if np.isnan(e).all():
-        return []
-    valleys, _ = find_peaks(-e, prominence=MIN_PROMINENCE, distance=max(1, int(0.5 * fps)))
-    valleys = [v for v in valleys if in_pushup[v]]
-    reps, bounds = [], [0] + valleys + [len(e) - 1]
-    for k, v in enumerate(valleys):
-        left, right = bounds[k] if k else 0, bounds[k + 2]
-        li = left + int(np.argmax(e[left:v + 1]))                  # top before
-        ri = v + int(np.argmax(e[v:right + 1]))                    # top after
-        top_l, top_r = e[li], e[ri]
-        s = v
-        while s > li and e[s - 1] < top_l - 3:                     # start of descent
-            s -= 1
-        end = v
-        while end < ri and e[end + 1] < top_r - 3:                 # end of ascent
-            end += 1
-        s, end = max(li, s - 1), min(ri, end + 1)
-        reps.append((s, int(v), end))
+    """Elbow valleys inside each push-up segment; a rep never extends outside its segment."""
+    reps = []
+    for r0, r1 in _runs(in_pushup):
+        e = _fill(elbow[r0:r1 + 1].copy())
+        if len(e) < 3 or np.isnan(e).all():
+            continue
+        valleys, _ = find_peaks(-e, prominence=MIN_PROMINENCE, distance=max(1, int(0.5 * fps)))
+        valleys = list(valleys)
+        bounds = [0] + valleys + [len(e) - 1]
+        for k, v in enumerate(valleys):
+            left, right = bounds[k], bounds[k + 2]
+            li = left + int(np.argmax(e[left:v + 1]))              # top before
+            ri = v + int(np.argmax(e[v:right + 1]))                # top after
+            top_l, top_r = e[li], e[ri]
+            s = v
+            while s > li and e[s - 1] < top_l - 3:                 # start of descent
+                s -= 1
+            end = v
+            while end < ri and e[end + 1] < top_r - 3:             # end of ascent
+                end += 1
+            s, end = max(li, s - 1), min(ri, end + 1)
+            reps.append((r0 + s, r0 + int(v), r0 + end))
     return reps
 
 
@@ -173,9 +190,10 @@ def analyze(landmarks: dict, strict: bool = False, thresholds: dict | None = Non
             issues.append({"code": "SHALLOW", "t": float(t[b]), "value": round(mn, 1),
                            "severity": _severity(mn - th["depth_max_elbow"]),
                            "message": f"Only reached {mn:.0f}° at the elbow (target {th['depth_max_elbow']}°)"})
-        if mx < min(th["lockout_min_elbow"], best_lockout - LOCKOUT_SLACK_DEG):
+        lockout_target = min(th["lockout_min_elbow"], best_lockout - LOCKOUT_SLACK_DEG)
+        if mx < lockout_target:
             issues.append({"code": "NO_LOCKOUT", "t": float(t[c]), "value": round(mx, 1),
-                           "severity": _severity(th["lockout_min_elbow"] - mx),
+                           "severity": _severity(lockout_target - mx),
                            "message": f"Arms only straightened to {mx:.0f}° (target {th['lockout_min_elbow']}°)"})
         if hip_rel[hi_i] > th["hip_tolerance"]:
             v = float(hip_rel[hi_i])
