@@ -43,8 +43,10 @@ SEVERITY_RANK = {"high": 3, "med": 2, "low": 1}
 ISSUE_NAMES = {code: v[0] for code, v in coach.CUES.items()}
 ISSUE_NAMES.setdefault("HIP_PIKE", "Hips piking up")
 
-INK, MUTED, LINE = "#14202B", "#66707A", "#E3E7EC"
-GREEN, RED, AMBER, BLUE = "#1E9E5A", "#D9363E", "#D99A2B", "#3B6FB6"
+# dark theme (matches .streamlit/config.toml and the README)
+INK, MUTED, LINE = "#E8EDF2", "#8C99A6", "#27333F"
+CARD, PANEL, BG = "#151E27", "#1B2631", "#0E151C"
+GREEN, RED, AMBER, BLUE = "#3DBE74", "#F0525A", "#F2B33D", "#7FB2E5"
 
 st.set_page_config(page_title="Form Coach", page_icon="🟢", layout="wide")
 
@@ -56,8 +58,10 @@ html, body, [class*="css"], .stMarkdown, .stButton button, input, textarea {{
 }}
 header[data-testid="stHeader"] {{ background: transparent; }}
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {{ display:none; }}
-[data-testid="stFileUploaderDropzone"] {{ background:#fff; border:1.5px dashed #C9D1DA; border-radius:14px; }}
-[data-testid="stExpander"] details {{ background:#fff; border-radius:12px; border-color:{LINE}; }}
+[data-testid="stFileUploaderDropzone"] {{ background:{CARD}; border:1.5px dashed #3A4856; border-radius:14px; }}
+[data-testid="stExpander"] details {{ background:{CARD}; border-radius:12px; border-color:{LINE}; }}
+[data-testid="stStatusWidget"], [data-testid="stExpander"] summary {{ color:{INK}; }}
+.stApp {{ background: radial-gradient(1200px 500px at 15% -10%, #16222E 0%, {BG} 60%); }}
 .stTabs [data-baseweb="tab"] p {{ font-weight:500; }}
 .block-container {{ max-width: 1240px; padding-top: 1.6rem; padding-bottom: 4rem; }}
 h1, h2, h3, h4 {{ font-family: 'Archivo', 'IBM Plex Sans', sans-serif; letter-spacing: -0.01em; color: {INK}; }}
@@ -70,31 +74,31 @@ h1, h2, h3, h4 {{ font-family: 'Archivo', 'IBM Plex Sans', sans-serif; letter-sp
 .fc-eyebrow {{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.08em;
                text-transform:uppercase; color:{MUTED}; margin: 1.4rem 0 .45rem; }}
 
-[data-testid="stMetric"] {{ background:#fff; border:1px solid {LINE}; border-radius:14px; padding:14px 18px; }}
+[data-testid="stMetric"] {{ background:{CARD}; border:1px solid {LINE}; border-radius:14px; padding:14px 18px; }}
 [data-testid="stMetricLabel"] p {{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.06em;
                                    text-transform:uppercase; color:{MUTED}; }}
 [data-testid="stMetricValue"] {{ font-family:'Archivo',sans-serif; font-weight:800; color:{INK}; }}
 
 div[class*="st-key-rep_"], div[class*="st-key-rep_"] > div {{ width:100%; }}
 div[class*="st-key-rep_"] button {{
-  width:100%; min-height:58px; border-radius:10px; border:1px solid {LINE}; background:#fff;
+  width:100%; min-height:58px; border-radius:10px; border:1px solid {LINE}; background:{CARD};
   box-shadow: inset 0 4px 0 {GREEN}; color:{INK}; padding:.5rem .25rem .3rem;
 }}
 div[class*="st-key-rep_"] button p {{ font-family:'IBM Plex Mono',monospace; font-size:.8rem; line-height:1.3;
   white-space:pre-line; margin:0; }}
-div[class*="st-key-rep_bad_"] button {{ box-shadow: inset 0 4px 0 {RED}; background:#FFF5F5; }}
+div[class*="st-key-rep_bad_"] button {{ box-shadow: inset 0 4px 0 {RED}; background:#2A1C22; }}
 div[class*="st-key-rep_"] button:hover {{ border-color:{INK}; color:{INK}; }}
 div[class*="st-key-rep_"] button:focus-visible {{ outline:3px solid {BLUE}; outline-offset:2px; }}
 
-.fc-card {{ background:#fff; border:1px solid {LINE}; border-radius:14px; padding:18px 20px; }}
+.fc-card {{ background:{CARD}; border:1px solid {LINE}; border-radius:14px; padding:18px 20px; }}
 .fc-headline {{ font-family:'Archivo',sans-serif; font-weight:800; font-size:1.35rem; color:{INK}; margin:0 0 .35rem; }}
-.fc-fix {{ border-left:4px solid {RED}; padding:.55rem .8rem; margin:.7rem 0; background:#FBFBFC; border-radius:0 10px 10px 0; }}
+.fc-fix {{ border-left:4px solid {RED}; padding:.55rem .8rem; margin:.7rem 0; background:{PANEL}; border-radius:0 10px 10px 0; }}
 .fc-fix b {{ color:{INK}; }}
 .fc-cue {{ display:inline-block; margin-top:.35rem; font-family:'IBM Plex Mono',monospace; font-size:.82rem;
-           background:#EAF6EF; color:#13643A; padding:.18rem .5rem; border-radius:6px; }}
+           background:#12301F; color:#8BE3B0; padding:.18rem .5rem; border-radius:6px; }}
 .fc-small {{ color:{MUTED}; font-size:.85rem; }}
 .fc-steps {{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:1.2rem; }}
-.fc-step {{ background:#fff; border:1px solid {LINE}; border-radius:14px; padding:16px 18px; }}
+.fc-step {{ background:{CARD}; border:1px solid {LINE}; border-radius:14px; padding:16px 18px; }}
 .fc-step-n {{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; color:{MUTED}; letter-spacing:.06em; }}
 .fc-step-t {{ font-family:'Archivo',sans-serif; font-weight:800; font-size:1.05rem; color:{INK}; margin:.2rem 0 .25rem; }}
 @media (max-width: 760px) {{ .fc-steps {{ grid-template-columns:1fr; }} }}
@@ -193,7 +197,7 @@ SANS_STACK = "IBM Plex Sans, system-ui, -apple-system, Segoe UI, sans-serif"
 
 def _axis():
     return alt.Axis(labelFont=MONO_STACK, titleFont=SANS_STACK, labelColor=MUTED, titleColor=MUTED,
-                    titleFontWeight=500, gridColor="#EEF1F4", domainColor=LINE, tickColor=LINE)
+                    titleFontWeight=500, gridColor="#1F2A35", domainColor=LINE, tickColor=LINE)
 
 
 def _set_window(a: dict) -> list[float]:
@@ -214,15 +218,15 @@ def elbow_chart(a: dict) -> alt.LayerChart:
     th = a["thresholds"]
     s = _series_df(a)
     xs = alt.Scale(domain=_set_window(a), nice=False)
-    rects = alt.Chart(_rep_bands(a)).mark_rect(opacity=0.12, color=RED).encode(
+    rects = alt.Chart(_rep_bands(a)).mark_rect(opacity=0.18, color=RED).encode(
         x=alt.X("start:Q", scale=xs), x2="end:Q", tooltip=["rep", "issues"])
     line = alt.Chart(s).mark_line(color=GREEN, strokeWidth=2, clip=True).encode(
         x=alt.X("t:Q", title="Time (s)", axis=_axis(), scale=xs),
         y=alt.Y("elbow:Q", title="Elbow angle (°)", scale=alt.Scale(domain=[30, 185]), axis=_axis()))
     refs = pd.DataFrame({"y": [th["depth_max_elbow"], th["lockout_min_elbow"]],
                          "label": ["Depth target", "Lockout target"]})
-    rule = alt.Chart(refs).mark_rule(strokeDash=[5, 4], color=MUTED).encode(y="y:Q", tooltip=["label", "y"])
-    return (rects + line + rule).properties(height=210).configure_view(stroke=None)
+    rule = alt.Chart(refs).mark_rule(strokeDash=[5, 4], color="#5B6875").encode(y="y:Q", tooltip=["label", "y"])
+    return (rects + line + rule).properties(height=210).configure_view(stroke=None).configure(background="transparent")
 
 
 def hip_chart(a: dict) -> alt.LayerChart:
@@ -234,12 +238,12 @@ def hip_chart(a: dict) -> alt.LayerChart:
         x=alt.X("t:Q", title="Time (s)", axis=_axis(), scale=xs),
         y=alt.Y("hip_dev:Q", title="Hips (°)", scale=ys,
                 axis=alt.Axis(values=[-30, -15, 0, 15, 30], labelFont=MONO_STACK, titleFont=SANS_STACK,
-                              labelColor=MUTED, titleColor=MUTED, gridColor="#EEF1F4", domainColor=LINE,
+                              labelColor=MUTED, titleColor=MUTED, gridColor="#1F2A35", domainColor=LINE,
                               tickColor=LINE)))
     refs = pd.DataFrame({"y": [tol, -tol], "label": [f"Sag limit +{tol}°", f"Pike limit -{tol}°"]})
-    rule = alt.Chart(refs).mark_rule(strokeDash=[5, 4], color=MUTED).encode(
+    rule = alt.Chart(refs).mark_rule(strokeDash=[5, 4], color="#5B6875").encode(
         y=alt.Y("y:Q", scale=ys), tooltip=["label"])
-    return (line + rule).properties(height=190).configure_view(stroke=None)
+    return (line + rule).properties(height=190).configure_view(stroke=None).configure(background="transparent")
 
 
 def imu_chart(w: dict) -> alt.Chart:
@@ -256,7 +260,7 @@ def imu_chart(w: dict) -> alt.Chart:
         y=alt.Y("acc:Q", title="Acceleration (m/s², 9.81 = still)", scale=alt.Scale(zero=False), axis=_axis()),
         color=alt.Color("sensor:N", scale=alt.Scale(range=[AMBER, BLUE]),
                         legend=alt.Legend(orient="top", title=None, labelFont=MONO_STACK)),
-    ).properties(height=220).configure_view(stroke=None)
+    ).properties(height=220).configure_view(stroke=None).configure(background="transparent")
 
 
 # ---------------------------------------------------------------- UI pieces
@@ -306,7 +310,7 @@ def coach_card(fb: dict):
         for n, p in enumerate(fb.get("priorities", []), 1))
     good = ""
     if fb.get("positives"):
-        good = '<div class="fc-small" style="margin-top:.6rem"><b style="color:#13643A">What went well</b> · ' \
+        good = '<div class="fc-small" style="margin-top:.6rem"><b style="color:#8BE3B0">What went well</b> · ' \
                + " · ".join(fb["positives"]) + "</div>"
     st.markdown(
         f'<div class="fc-card"><div class="fc-eyebrow" style="margin-top:0">Coach · {who}</div>'

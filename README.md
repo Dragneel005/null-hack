@@ -1,170 +1,191 @@
 <p align="center">
-  <img src="docs/assets/hero.svg" alt="A simulated athlete at the bottom of a push-up with sagging hips (hip highlighted red), next to three traces of the same set: elbow angle, hips off line, and a simulated chest-strap accelerometer." width="100%">
+  <img src="docs/assets/hero.svg" width="100%" alt="Form Coach analysing a real 15-rep push-up set filmed in a loose hoodie and trousers: skeleton at the bottom of a rep with the hip located under the fabric, a scoreboard of all 15 reps with 3 flagged for lockout, and elbow, hip and simulated chest-strap traces.">
 </p>
-
-<p align="center"><b>Film a push-up set from the side. Every rep gets measured, coached,<br>and turned into labelled training data, including the wearable data you never recorded.</b></p>
 
 <p align="center">
-  <a href="#run-it">Run it</a> ·
-  <a href="#what-it-does">What it does</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#the-physical-ai-part">Physical AI</a> ·
-  <a href="#status">Status</a> ·
-  <a href="CONTRACT.md">Module contract</a>
+  <b>Film a push-up set from the side. Every rep is measured, every fault is timestamped,<br>
+  and the same clip becomes labelled training data for a wearable you never wore.</b>
 </p>
 
----
+<p align="center">
+  <code>15 / 15 reps on a real set in baggy clothes</code>&nbsp;
+  <code>6 / 6 on a second real clip</code>&nbsp;
+  <code>59 tests</code>&nbsp;
+  <code>runs locally</code>
+</p>
 
-## Why this exists
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-you-get">What you get</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#accuracy">Accuracy</a> ·
+  <a href="#physical-ai-simulated-athletes-and-wearables">Physical AI</a> ·
+  <a href="CONTRACT.md">Contract</a>
+</p>
 
-Upload a workout video to a general chatbot and it doesn't really watch it: it samples about one frame
-per second, so it misses the bottom of most reps, and it can't measure a joint angle. You get
-"keep your core tight" whatever you did.
+<br>
 
-null-hack splits the job. A pose model measures **every frame**, fixed biomechanics rules score
-**every rep** with real angles, and only then does an LLM turn those numbers into coaching. The LLM
-can't invent a problem, because it only sees what was measured.
+## Why
+
+Ask a general chatbot to review a workout video and it samples about one frame a second, misses the
+bottom of most reps, and can't measure an angle. You get *"keep your core tight"* whatever you did.
+
+Form Coach measures first and talks second. A pose model tracks 19 joints in **every frame**, fixed
+biomechanics rules score **every rep**, and only then does an LLM (optional) turn the numbers into
+coaching. It can't invent a problem, because it only sees what was measured.
 
 Built in five hours at **NullHacks{Helsinki}** for the theme *physical AI: simulate the data you find cool*.
 
-## What it does
-
-| | For whom | What you get |
-|---|---|---|
-| **Form coach** | Anyone doing push-ups | Upload a side-view clip → skeleton overlay with faults lit up red at the moment they happen, a per-rep scorecard with timestamps, elbow and hip charts, and the two fixes that matter most |
-| **Simulated athletes** | People training form models | A kinematic body that does push-ups with random height, tempo, depth, camera angle and injected faults, plus exact ground truth for every rep |
-| **Simulated wearable** | People building smartwatch / chest-strap coaches | The accelerometer and gyroscope signal a chest strap, waist clip and watch *would* have recorded, from any real or simulated clip |
-
-Faults it knows, everywhere in the code:
-
-| Code | Meaning |
-|---|---|
-| `SHALLOW` | Elbow never bends past the depth target (90°) |
-| `NO_LOCKOUT` | Arms never straighten at the top (160°) |
-| `HIP_SAG` | Hips drop more than 15° below the shoulder–ankle line |
-| `HIP_PIKE` | Hips rise more than 15° above it |
-| `HEAD_DROP` | Head hangs well below the body line |
-| `FAST_DESCENT` | Lowering takes under ~0.4 s |
-
-## Run it
-
-Python 3.10+.
+## Quick start
 
 ```bash
 python -m venv .venv
-# Windows: .venv\Scripts\activate      macOS/Linux: source .venv/bin/activate
+.venv\Scripts\activate            # macOS / Linux: source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run app.py              # opens http://localhost:8501
 ```
 
-Click **Try the demo** to see a full report without filming anything. To use the LLM coach, put
-`ANTHROPIC_API_KEY=...` in a `.env` file; without it you get the rule-based coach, which always works offline.
+Press **Try the demo**, or upload your own clip. For Claude-written coaching, add
+`ANTHROPIC_API_KEY=...` to a `.env` file; without it the rule-based coach runs fully offline.
 
-**Filming your own clip:** side view, phone in landscape, 2–3 m away at hip height, whole body
-from head to heels in frame, one person, under 30 seconds. If the body isn't clear enough to judge,
-the app says so and doesn't guess.
+> **Filming:** side view, phone in landscape on the floor, 2–3 m away, head to heels in frame.
+> Loose clothes are fine. Getting into position and standing up afterwards are ignored automatically.
+
+## What you get
+
+<p align="center">
+  <img src="docs/assets/app-demo.png" width="88%" alt="Form Coach in dark mode, demo data: standard switch, upload box, four metrics (10 reps, 7 of 10 clean, 70 % form score, fatigue from rep 8) and a scoreboard of ten rep tiles, rep 8 flagged for sag and reps 9 and 10 for depth.">
+</p>
+
+| | |
+|---|---|
+| **Scoreboard** | One tile per rep, green or red with the fault. Click one and the video jumps there. |
+| **Skeleton overlay** | Your video with the tracked skeleton; the joints involved turn red while a fault is happening. Rep counter and elbow angle on screen. |
+| **Coach** | The two fixes that matter most, with the reps they happened on and a cue to remember. Claude or rule-based. |
+| **Angles** | Elbow angle and hip line across the set, with the targets and every flagged rep marked. |
+| **Wearable (simulated)** | What a chest strap and a smartwatch would have recorded during your set. |
+| **Two standards** | *Test* (90° at the elbow) or *Strict* (chest near the floor). Settings has a 2× faster tracking mode. |
+
+**Faults it detects**
+
+| Code | What it means | Judged against |
+|---|---|---|
+| `SHALLOW` | Didn't go deep enough | 90° elbow (75° strict) |
+| `NO_LOCKOUT` | Arms never straightened at the top | 160° (165° strict), or your own best lockout if the tracker under-reads you |
+| `HIP_SAG` / `HIP_PIKE` | Hips dropped below / rose above your body line | ±15° (12° strict) from *your own* line at the top of each rep |
+| `HEAD_DROP` | Head hung below the body line | 25° below your own head position |
+| `FAST_DESCENT` | Dropped into the bottom | about 0.4 s |
+
+Judging hips, head and lockout against your own top position is what makes loose clothing work:
+the tracker puts the hip on the fabric, a fixed straight-line rule calls that a sag, a personal
+baseline doesn't.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    V[your video] --> P[pose.py<br/>MediaPipe, every frame]
-    P -->|landmarks| A[analysis.py<br/>reps + faults]
-    A -->|analysis| C[coach.py<br/>rules or Claude]
-    P --> O[overlay.py<br/>skeleton + red faults]
+    V([your video]) --> P[pose<br/>19 joints / frame]
+    P --> X[activity<br/>is it a push-up?]
+    X --> A[analysis<br/>reps + faults]
+    A --> C[coach<br/>top 2 fixes]
+    P --> O[overlay<br/>skeleton + red faults]
     A --> O
-    O --> UI[app.py<br/>Streamlit]
-    C --> UI
-    P -->|landmarks| I[imu.py<br/>simulated wearable]
-    S[synth.py<br/>simulated athletes] -->|same landmarks format + ground truth| A
-    S --> I
+    P --> I[imu<br/>simulated wearable]
+    A & C & O & I --> UI([app])
+    S[synth<br/>simulated athletes] -. same format + ground truth .-> A
+    S -.-> B[benchmark]
+    A -.-> B
 ```
-
-Each arrow is one data format, defined once in [`CONTRACT.md`](CONTRACT.md). Because `synth.py`
-emits exactly what `pose.py` emits, everything downstream runs on real and simulated clips alike,
-and simulated clips come with answers to check against.
 
 | Module | Job |
 |---|---|
-| `pose.py` | Video → 19 body landmarks per frame, in pixels and in metres |
-| `activity.py` | Is this a push-up at all? Finds the push-up part of the clip, trims getting into position and standing up |
-| `analysis.py` | Landmarks → reps, angles, faults, fatigue point; judges hips, head and lockout against your own top position, so loose clothes don't read as sagging |
-| `coach.py` | Analysis → headline, top two fixes with cues, per-rep notes |
-| `overlay.py` | Draws the skeleton on your video; joints turn red during a fault; rep counter and elbow angle on screen |
-| `video.py` | The only module that touches video files: saves uploads, makes browser-playable H.264, grabs frames |
-| `synth.py` | Simulated athletes and dataset export |
-| `imu.py` | Simulated chest / hip / wrist IMU |
-| `benchmark.py` | Scores the analyzer against simulated ground truth, split by condition (e.g. baggy vs fitted clothes) |
-| `app.py` | The web app |
+| `pose.py` | MediaPipe pose per frame → 19 landmarks in pixels and metres; removes one-frame jumps (fabric, occlusion) before smoothing |
+| `activity.py` | Finds where you're actually in push-up position (body horizontal, legs straight, hands on the floor); trims setup, kneeling and standing up |
+| `analysis.py` | Reps from elbow-angle valleys, then the six faults and the rep where fatigue sets in |
+| `coach.py` | Turns the analysis into a headline, two priorities and cues; Claude if a key is set |
+| `overlay.py` · `video.py` | Skeleton video in browser-playable H.264 · all file and codec handling |
+| `synth.py` · `imu.py` · `benchmark.py` | Simulated athletes · simulated wearables · scoring against ground truth |
+| `app.py` | The Streamlit app |
 
-## The physical-AI part
+Every arrow is one data format, defined once in [`CONTRACT.md`](CONTRACT.md).
 
-**Simulated athletes.** `synth.generate(n, faults=..., camera=...)` builds each athlete from body
-proportions, drives the elbow angle through every rep, and places the shoulder where an arm of that bend
-meets a rigid body line, so the motion is physically consistent rather than drawn. Faults, fatigue
-(form breaking down from rep *N*), camera yaw and roll, resolution, frame rate, keypoint jitter and
-dropped detections are all randomised. `synth.export()` writes a zip with `samples.jsonl`, `frames.csv`,
-`reps.csv` and a datasheet.
+## Accuracy
 
-**Simulated wearable.** `imu.simulate(landmarks)` puts virtual sensors on the shoulder, hip and wrist,
-converts pixels to metres from the body's own size, and differentiates position twice. Accelerometers
-read specific force (a sensor lying still reads 9.81 m/s² up), the gyroscope reads how fast the sensor's
-body segment rotates, and seeded noise and bias mimic a consumer IMU. One phone video becomes pose
-data, wearable data and per-rep labels.
+**Real clips**
+
+| Clip | Ground truth | Result |
+|---|---|---|
+| Side view, loose hoodie and trousers, kneels up at the end | 15 reps (hand-counted) | **15 reps**, every bottom within 0.4 s of the hand count; kneeling ignored; no false hip sag |
+| Side view, beach, slow reps with long holds | 6 reps | **6 reps** |
+| Multiple people, camera cuts, hand-release push-ups | ~2 visible | recognised as push-ups, 2 incomplete reps |
+
+**Simulated** (`python benchmark.py`): 120 athletes, random cameras up to 25° off side view at
+24–60 fps with jitter and dropped frames, mixed faults, half in baggy clothes.
+
+| | |
+|---|---|
+| Rep count exactly right | 120 / 120 clips |
+| `SHALLOW` `NO_LOCKOUT` `HIP_SAG` `HIP_PIKE` `HEAD_DROP` | 100 % precision and recall |
+| `FAST_DESCENT` | 100 % precision, 90 % recall |
+| False hip sag on clean reps in baggy clothes | 4.4 % with a fixed straight-line rule → **0 %** with the personal baseline |
+
+The simulated clips are scored with the same fault definitions they were generated from, so treat
+them as a regression test of the pipeline; the real clips are the real-world evidence.
+
+## Physical AI: simulated athletes and wearables
+
+**Simulated athletes.** `synth.generate(n, faults=..., camera=..., clothing=...)` builds each
+athlete from body proportions and drives the elbow through every rep; the shoulder sits where an arm
+of that bend meets a rigid body line, so the motion is physically consistent rather than drawn.
+Faults, fatigue, camera angle, frame rate, jitter, dropped detections and **loose clothing** are
+randomised, and every clip carries exact ground truth. `synth.export()` writes a zip with
+`samples.jsonl`, `frames.csv`, `reps.csv` and a datasheet.
+
+**Simulated wearables.** `imu.simulate(landmarks)` places a chest strap, waist clip and smartwatch on
+the tracked body, converts pixels to metres from the body's own size and differentiates twice. The
+accelerometers read gravity at rest, the gyroscope reads segment rotation, and seeded noise mimics a
+consumer IMU. One phone video becomes pose data, wearable data and per-rep labels.
 
 ```python
 import synth, imu
-athletes = synth.generate(n=50, seed=0)                 # ~0.2 s per athlete
+athletes = synth.generate(n=50, clothing="random")      # ~0.2 s per athlete
 wearable = imu.simulate(athletes[0]["landmarks"])       # chest / hip / wrist
 synth.export(athletes, "outputs", with_imu=True)        # -> outputs/synth_dataset.zip
 ```
 
-## Proof it works
+## Tests
 
 ```bash
 python -m pytest -q tests
 ```
 
-The tests check behaviour against independent facts, not against the code's own maths:
-
-- every injected fault is measurable in the reps labelled with it (and absent from the clean ones), and clean reps are counted exactly
-- a still sensor reads 9.81 m/s²; a 10 cm, 1 Hz bounce gives the textbook 3.95 m/s² peak; a torso rotating at 30°/s reads 30°/s
-- the overlay is H.264, keeps every frame, and turns the hip red only while `HIP_SAG` is active
-- uploads are content-addressed; frame grabs return the right frame
-- the analyzer counts the real beach clip's 6 reps exactly, finds every fault type on the right reps, and doesn't flag clean reps in baggy clothes as sagging
-- a single-frame landmark jump is removed while real movement passes through untouched
-
-**Benchmark** (`python benchmark.py`): 120 simulated athletes, random cameras (up to 25° off side view,
-24–60 fps, jitter, dropped frames), mixed faults, half in baggy clothes:
-
-| | Result |
-|---|---|
-| Rep count exactly right | 120 / 120 clips |
-| `SHALLOW`, `NO_LOCKOUT`, `HIP_SAG`, `HIP_PIKE`, `HEAD_DROP` | precision and recall 100% |
-| `FAST_DESCENT` | precision 100%, recall 90% (24 fps leaves ~5 frames for a 0.2 s drop) |
-| Baggy clothes, before the own-baseline fix | 4.4% of clean reps falsely flagged as hip sag → 0% after |
-
-These are simulated clips scored with the same fault definitions they were generated from, so
-read them as a regression test of the pipeline, not as real-world accuracy. Real-world check so far:
-the beach clip, 6 / 6 reps.
+59 tests, written against independent facts rather than the code's own maths: hand-counted reps on
+real clips, known physics (a still sensor reads 9.81 m/s²; a 10 cm, 1 Hz bounce peaks at 3.95 m/s²),
+every simulated fault found on exactly its labelled reps, the overlay turning a joint red only while
+its fault is active, and a one-frame landmark jump removed while real motion passes untouched.
 
 ## Status
 
 | | |
 |---|---|
-| ✅ Done | `pose.py`, `activity.py`, `analysis.py`, `coach.py`, `app.py`, `overlay.py`, `video.py`, `synth.py`, `imu.py`, `benchmark.py` |
-| 🗺️ Next | `physics.py` (joint loads), a Sim Lab tab in the app, more hand-labelled real clips, real wearable sync |
+| ✅ Working | pose, activity, analysis, coach, overlay, video, app (dark UI), synth, imu, benchmark |
+| 🗺️ Next | `physics.py` (joint loads), a Sim Lab tab, more hand-labelled real clips, syncing a real wearable |
 
-## Repository
+<details>
+<summary><b>Repository layout</b></summary>
 
 ```
-app.py  pose.py  activity.py  analysis.py  coach.py  overlay.py  video.py
-synth.py  imu.py  benchmark.py
-CONTRACT.md        the data formats between modules (start here if you're contributing)
-samples/           demo clips, real landmarks, mock analysis for the demo
-models/            MediaPipe pose models
-tests/             pytest suite
-docs/              research notes, PRD, the script that draws the header image
+app.py              Streamlit app (theme in .streamlit/config.toml)
+pose.py             video -> landmarks          activity.py   push-up or not, segments
+analysis.py         reps, faults, fatigue       coach.py      feedback (rules or Claude)
+overlay.py          skeleton video              video.py      uploads, H.264, frame grabs
+synth.py            simulated athletes          imu.py        simulated wearables
+benchmark.py        score analysis vs truth
+CONTRACT.md         data formats between modules
+samples/            demo clips, real landmarks (incl. the 15-rep baggy-clothes set), mock data
+models/             MediaPipe pose models
+tests/              pytest suite
+docs/               research notes, PRD, header image generator (docs/assets/make_hero.py)
 ```
 
-The header image is generated from real output: `python docs/assets/make_hero.py`.
+</details>
