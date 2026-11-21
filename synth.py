@@ -148,7 +148,22 @@ def _camera(rng, mode):
             "drop_p": float(rng.uniform(0, 0.02)), "burst": bool(rng.random() < 0.3)}
 
 
-def _athlete(rng, idx, faults, camera):
+CLOTH_WEIGHT = {"shoulder": 0.5, "hip": 1.0, "knee": 0.6}   # shirt / waistband / trousers
+
+
+def _cloth_plan(cloth_rng, clothing):
+    """Loose clothing: MediaPipe tracks the fabric outline, so torso points hang toward where
+    the cloth falls (image-down in a plank), sway, jitter more and lose visibility."""
+    baggy = clothing == "baggy" or (clothing == "random" and cloth_rng.random() < 0.5)
+    if not baggy:
+        return None
+    return {"hang": float(cloth_rng.uniform(0.02, 0.05)), "sway": float(cloth_rng.uniform(0.008, 0.02)),
+            "freq": float(cloth_rng.uniform(0.6, 1.4)), "phase": float(cloth_rng.uniform(0, 2 * math.pi)),
+            "jitter": float(cloth_rng.uniform(1.5, 3.5)), "vis_drop": float(cloth_rng.uniform(0.15, 0.35)),
+            "seed": int(cloth_rng.integers(2**31))}
+
+
+def _athlete(rng, idx, faults, camera, cloth=None):
     body = _Body(rng, float(rng.uniform(1.55, 1.95)))
     cam = _camera(rng, camera)
     n_reps = int(rng.integers(4, 9) if camera == "ideal" else rng.integers(3, 13))
@@ -214,6 +229,7 @@ def _athlete(rng, idx, faults, camera):
         b0 = int(rng.integers(0, max(1, n_frames - 10)))
         burst = (b0, b0 + int(rng.integers(3, 9)))
 
+    cloth_noise = np.random.default_rng(cloth["seed"]) if cloth else None
     frames = []
     for fi in range(n_frames):
         tt = fi / fps
@@ -257,6 +273,13 @@ def _athlete(rng, idx, faults, camera):
                 yp += rng.normal(0, cam["jitter_px"])
             v = vis_near if (side == near or name == "nose") else vis_far[joint]
             v = float(np.clip(v + rng.normal(0, 0.02), 0, 1))
+            if cloth and joint in CLOTH_WEIGHT and name != "nose":
+                k = CLOTH_WEIGHT[joint] * body.L * ppm
+                yp += k * (cloth["hang"] + cloth["sway"] * math.sin(2 * math.pi * cloth["freq"] * tt
+                                                                     + cloth["phase"]))
+                xp += cloth_noise.normal(0, cloth["jitter"] * w / 1280 * CLOTH_WEIGHT[joint])
+                yp += cloth_noise.normal(0, cloth["jitter"] * w / 1280 * CLOTH_WEIGHT[joint])
+                v = float(np.clip(v - cloth["vis_drop"] * CLOTH_WEIGHT[joint], 0.05, 1))
             lm[name] = [round(float(xp), 2), round(float(yp), 2), round(v, 3)]
             world[name] = [round(facing * float(X - hipm[0]), 4), round(-float(Y - hipm[1]), 4),
                            round(z, 4)]
@@ -268,7 +291,8 @@ def _athlete(rng, idx, faults, camera):
         "fatigue_from_rep": fatigue_from,
         "params": {"height_m": round(body.height, 3), "camera": cam,
                    "near_side": "right" if near == "r" else "left",
-                   "px_per_m": round(ppm, 2), "faults_mode": faults if isinstance(faults, str)
+                   "px_per_m": round(ppm, 2), "clothing": "baggy" if cloth else "fitted",
+                   "cloth": cloth, "faults_mode": faults if isinstance(faults, str)
                    else list(faults)},
     }
     landmarks = {"source": f"synth_{idx:05d}", "fps": fps, "w": w, "h": h,
@@ -280,14 +304,20 @@ def _athlete(rng, idx, faults, camera):
 
 # ---------------------------------------------------------------- public API
 
-def generate(n: int = 500, seed: int = 0, faults="mixed", camera: str = "random") -> list[dict]:
+def generate(n: int = 500, seed: int = 0, faults="mixed", camera: str = "random",
+             clothing: str = "fitted") -> list[dict]:
     """Simulate `n` athletes. faults: "mixed" | "none" | code | [codes]. camera: "random" | "ideal".
+    clothing: "fitted" | "baggy" | "random" (half baggy). Clothing uses its own random stream,
+    so the same seed gives the same athletes and reps whatever the clothing.
 
     Returns [{"landmarks": <pose.extract schema>, "labels": {"rep_count", "reps": [{"n",
     "start", "bottom", "end", "faults"}], "fatigue_from_rep", "params"}}].
     """
+    if clothing not in ("fitted", "baggy", "random"):
+        raise ValueError(f"clothing must be fitted, baggy or random, not {clothing!r}")
     rng = np.random.default_rng(seed)
-    return [_athlete(rng, i, faults, camera) for i in range(n)]
+    cloth_rng = np.random.default_rng([seed, 7919])
+    return [_athlete(rng, i, faults, camera, _cloth_plan(cloth_rng, clothing)) for i in range(n)]
 
 
 def export(samples: list[dict], out_dir, with_imu: bool = False) -> str:

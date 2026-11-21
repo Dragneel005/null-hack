@@ -137,3 +137,24 @@ def test_export_writes_a_zip_with_jsonl_csv_and_datasheet(tmp_path):
         assert len(lines) == 2 and "labels" in json.loads(lines[0])
         header = z.read("frames.csv").decode().splitlines()[0]
         assert header.startswith("sample_id,i,t,") and "l_elbow_x" in header
+
+
+# ---------------------------------------------------------------- clothing
+
+def test_baggy_clothes_shift_torso_points_without_changing_the_truth():
+    fitted = synth.generate(n=2, seed=9, faults="none", camera="ideal", clothing="fitted")
+    baggy = synth.generate(n=2, seed=9, faults="none", camera="ideal", clothing="baggy")
+    for f_s, b_s in zip(fitted, baggy):
+        assert f_s["labels"]["reps"] == b_s["labels"]["reps"]          # same athlete, same reps
+        assert b_s["labels"]["params"]["clothing"] == "baggy"
+        side = f_s["labels"]["params"]["near_side"][0]
+        pairs = [(f["lm"], b["lm"]) for f, b in zip(f_s["landmarks"]["frames"], b_s["landmarks"]["frames"])
+                 if f["lm"] and b["lm"]]
+        hip_drop = np.mean([b[f"{side}_hip"][1] - f[f"{side}_hip"][1] for f, b in pairs])
+        assert hip_drop > 3                                               # hangs below the real hip (px)
+        assert np.mean([b[f"{side}_hip"][2] for _, b in pairs]) < np.mean([f[f"{side}_hip"][2] for f, _ in pairs])
+        assert all(f[f"{side}_wrist"] == b[f"{side}_wrist"] for f, b in pairs)   # hands unaffected
+
+
+def test_existing_seeds_are_unchanged_by_the_clothing_option():
+    assert json.dumps(synth.generate(n=2, seed=5)) == json.dumps(synth.generate(n=2, seed=5, clothing="fitted"))
