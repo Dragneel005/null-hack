@@ -66,9 +66,14 @@ def smooth(frames: list[dict], window: int = 5) -> list[dict]:
     return out
 
 
-def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
-            max_width: int = 960, smooth_window: int = 5, progress=None) -> dict:
-    """Run pose estimation over a video. `progress(fraction)` is called if given."""
+def extract(video_path: str, model: str = "full", max_seconds: float = 60.0,
+            max_width: int = 960, smooth_window: int = 5, progress=None, max_fps: float = 40.0) -> dict:
+    """Run pose estimation over a video. `progress(fraction)` is called if given.
+
+    High-fps phone clips (e.g. 60 fps) are subsampled to <= max_fps: every `frame_stride`-th video frame
+    is tracked; the output fps / t are in landmark-frame units and `frame_stride` is recorded so
+    overlay.render can map landmark frame k to video frame k*frame_stride.
+    """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise ValueError(f"Could not open video: {video_path}")
@@ -76,9 +81,11 @@ def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
     if not (1.0 < fps < 240.0):
         fps = 30.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    stride = max(1, int(round(fps / 30.0))) if fps > max_fps else 1
+    vfps, fps = fps, fps / stride
     limit = int(max_seconds * fps)
     if total > 0:
-        limit = min(limit, total)
+        limit = min(limit, total // stride if stride > 1 else total)
 
     opts = vision.PoseLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=str(MODELS[model])),
@@ -94,6 +101,8 @@ def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
             ok, frame = cap.read()
             if not ok:
                 break
+            for _ in range(stride - 1):     # skip frames cheaply (no decode to BGR)
+                cap.grab()
             if w is None:
                 h, w = frame.shape[:2]
                 scale = min(1.0, max_width / w)
@@ -129,6 +138,7 @@ def extract(video_path: str, model: str = "full", max_seconds: float = 90.0,
     return {
         "source": os.path.basename(str(video_path)),
         "fps": float(fps), "w": int(w), "h": int(h),
+        "video_fps": float(vfps), "frame_stride": int(stride),
         "n_frames": len(frames), "detected_frames": detected,
         "frames": smooth(frames, smooth_window),
     }

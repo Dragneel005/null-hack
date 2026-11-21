@@ -35,7 +35,7 @@ analysis = {
   "thresholds": {...},                   // effective thresholds used
   "series": {                            // per-frame, same length as landmarks.frames; null where no person
     "t": [...], "elbow": [...deg], "body_line": [...deg, 180 = straight shoulder-hip-ankle],
-    "hip_dev": [...deg signed: + = sag (hip below line), - = pike (hip above line)],
+    "hip_dev": [...deg signed hip bend = ±(180 - body_line): + = sag (hip below line), - = pike (hip above line)],
     "head": [...deg ear-shoulder-hip], "phase": ["up"|"down"|"bottom"|"top"|null ...]
   },
   "reps": [{
@@ -55,7 +55,7 @@ analysis = {
   }
 }
 ```
-**Fault codes (shared with synth.py):** `SHALLOW` (min elbow never < depth threshold, ~95°), `NO_LOCKOUT` (max elbow never > ~155°), `HIP_SAG`, `HIP_PIKE` (|hip_dev| > ~12-15°), `HEAD_DROP` (head angle well below body line), `FAST_DESCENT` (descent < ~0.4 s).
+**Fault codes (shared with synth.py):** `SHALLOW` (min elbow never < 100°), `NO_LOCKOUT` (max elbow never > 150°), `HIP_SAG` (> 12°), `HIP_PIKE` (> 15°), `HEAD_DROP` (ear-shoulder-hip < 130°), `FAST_DESCENT` (descent < ~0.4 s).
 Rep counting: hysteresis state machine on smoothed elbow angle (down < ~100°, up > ~150°), with min-rep-duration guard; must work for both slow reps with long top holds and fast reps. Pick side with higher visibility (per clip, not per frame).
 
 ## 3. `physics.py` — `simulate(landmarks, analysis, body_mass_kg=75.0, height_m=1.75) -> physics`
