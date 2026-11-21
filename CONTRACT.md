@@ -102,3 +102,23 @@ Draws skeleton (green OK, joints/segments red during an issue window), HUD: rep 
 
 ## 8. `app.py` — Streamlit UI
 Tabs: **Analyze** (upload or demo clip → overlay video, scorecards, charts, coach) · **Physics** · **Sim Lab** (generate dataset, preview, download, benchmark) · **About/Pitch**.
+
+## 6a. `synth.py` status (DONE — vision branch)
+`generate(n, seed, faults="mixed"|"none"|code|[codes], camera="random"|"ideal")`, `export(samples, out_dir, with_imu=False)`, `render_preview(sample, t)`.
+Labels per rep also include `"bottom"` (s); labels also have `"fatigue_from_rep"` and `"params"` (height, camera, near_side, px_per_m).
+Speed: ~0.2 s per athlete → use n≈50–100 in the app, not 500. Tests: `tests/test_synth.py` (every fault code is measurable in its labelled reps; clean reps are countable with down<100/up>150).
+NO_LOCKOUT reps top out at 146–152°, so an "up > 150" counter may merge them with the next rep — that's the realistic hard case for the benchmark.
+
+## 9. `imu.py` (DONE — THEME: simulated wearable) — `simulate(landmarks, side=None, noise=True, seed=0, smooth_window=None, height_m=1.75) -> imu`
+Virtual chest strap (shoulder), waist clip (hip), smartwatch (wrist). Works on real `pose.extract` output and on `synth` samples. Scale from `world` landmarks (fallback: height).
+```jsonc
+imu = {"rate_hz": 30, "simulated": true, "noise": true, "side": "left", "m_per_px": 0.0058,
+       "units": {"acc": "m/s^2", "gyro": "deg/s", "t": "s"},
+       "axes": {"world": "x forward (facing), y up", "sensor": "x along segment, y perpendicular"},
+       "sensors": {"chest"|"hip"|"wrist": {"placement": "shoulder", "segment": ["hip","shoulder"],
+                   "t": [...], "acc": [[ax, ay]...],        // sensor frame, includes gravity (+9.81 at rest)
+                   "acc_world": [[ax, ay]...],              // world frame, includes gravity
+                   "gyro": [...]}}}                         // segment angular rate
+```
+Same length as `landmarks.frames` (gaps interpolated). Tests: `tests/test_imu.py` (rest reads 9.81 m/s², known oscillation/rotation reproduce textbook values).
+Run tests: `python -m pytest -q tests`.
