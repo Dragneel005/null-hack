@@ -52,7 +52,24 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "fatigue_score_drop": 12.0,
     "fatigue_tempo_ratio": 1.4,
     "fatigue_depth_deg": 12.0,
+    # --- leeway (baggy clothes / landmark noise) ---
+    "leeway_scale": 1.0,          # multiplies LEEWAY below; 0 = strict (every threshold breach is a fault)
+    "sustain_s": 0.2,             # hip / head faults must be held this long; single-frame landmark jumps ignored
 }
+
+# Leeway: a fault that only exceeds its threshold by less than this margin is reported as a *minor* note
+# (rep["minor_issues"]) instead of an issue: it does not cost score and the rep still counts as clean.
+# Loose / baggy clothing hides the real joint, so MediaPipe's elbow and hip landmarks sit a few degrees
+# off (straight arms in wide sleeves typically read ~140-150 deg), and borderline readings are not
+# trustworthy. Clearly bad form is still flagged (e.g. arms at 135 deg, hips sagging 15+ deg).
+# Sized on the baggy-clothes upload (lockout reads 142-148 deg) while keeping the synthetic benchmark's macro
+# fault F1 at its old level (~0.83); FAST_DESCENT needs none (the descent walk below bridges wobble stalls).
+# HEAD_DROP gets no extra leeway: its threshold already carries a wide margin for the ear/shoulder offset
+# (an injected 30 deg head drop on the lite model only reads ~57-62 deg), so leeway would hide real drops.
+LEEWAY: dict[str, float] = {"SHALLOW": 5.0, "NO_LOCKOUT": 8.0, "HIP_SAG": 3.0, "HIP_PIKE": 3.0,
+                            "HEAD_DROP": 0.0, "FAST_DESCENT": 0.0}
+_FAULT_TH = {"SHALLOW": "depth_deg", "NO_LOCKOUT": "lockout_deg", "HIP_SAG": "hip_sag_deg",
+             "HIP_PIKE": "hip_pike_deg", "HEAD_DROP": "head_drop_deg", "FAST_DESCENT": "fast_descent_s"}
 
 FAULT_INFO: dict[str, dict[str, str]] = {
     "SHALLOW": {
@@ -200,6 +217,21 @@ def _r(x, nd=1):
     return round(float(x), nd)
 
 
+def _sustained(x: np.ndarray, w: int) -> np.ndarray:
+    """Level held for >= w frames: rolling min over a w-window (NaN-aware), aligned to window start.
+    max(_sustained(x)) ignores spikes shorter than w frames (landmark jumps on loose clothing)."""
+    n = len(x)
+    if w <= 1 or n == 0:
+        return x.copy()
+    w = min(w, n)
+    out = np.full(n, np.nan)
+    for i in range(n - w + 1):
+        seg = x[i:i + w]
+        if np.isfinite(seg).sum() >= max(1, w // 2):
+            out[i] = float(np.nanmin(seg))
+    return out
+
+
 def _window(mask: np.ndarray, peak: int) -> tuple[int, int]:
     """Contiguous True run in mask containing index peak."""
     a = b = peak
@@ -219,6 +251,9 @@ def analyze(landmarks: dict, thresholds: Optional[dict] = None) -> dict:
     th = dict(DEFAULT_THRESHOLDS)
     if thresholds:
         th.update({k: float(v) for k, v in thresholds.items() if v is not None})
+    # a threshold the caller set explicitly is applied strictly (no leeway on top of it)
+    custom = {k for k, v in (thresholds or {}).items() if v is not None}
+    leeway = {c: (0.0 if _FAULT_TH[c] in custom else LEEWAY[c] * th["leeway_scale"]) for c in LEEWAY}
     frames = landmarks.get("frames") or []
     fps = float(landmarks.get("fps") or 30.0)
     n = len(frames)
@@ -378,16 +413,38 @@ def analyze(landmarks: dict, thresholds: Optional[dict] = None) -> dict:
                     break
             # the rep starts when the descent actually begins (not somewhere in a drifting top hold):
             # walk out from the bottom while the angle is still clearly changing or below half-amplitude
+            # (a short stall mid-way, e.g. landmark wobble on a loose sleeve, does not end the walk: up to
+            # ~0.2 s of "flat" frames are bridged if the movement continues after them)
             vthr = 12.5 / fps
+            bridge = max(1, int(round(0.2 * fps)))
+
+            def _moving(jn, jp, ref):
+                return (not np.isnan(e[jn]) and not np.isnan(e[jp])
+                        and (e[jn] - e[jp] > vthr or e[jn] < vmin + 0.5 * (ref - vmin)))
+
             j = bj
-            while j - 1 > lp and not np.isnan(e[j - 1]) and (
-                    e[j - 1] - e[j] > vthr or e[j - 1] < vmin + 0.5 * (e[lp] - vmin)):
-                j -= 1
+            while j - 1 > lp:
+                if _moving(j - 1, j, e[lp]):
+                    j -= 1
+                    continue
+                nxt_j = next((m for m in range(j - 2, max(lp, j - 1 - bridge), -1)
+                              if not np.isnan(e[m]) and e[m] - e[j] > 2 * vthr * (j - m)
+                              and e[m] < e[lp] - tol_l), None)
+                if nxt_j is None:
+                    break
+                j = nxt_j
             st = max(st, j)
             j = bj
-            while j + 1 < rp and not np.isnan(e[j + 1]) and (
-                    e[j + 1] - e[j] > vthr or e[j + 1] < vmin + 0.5 * (e[rp] - vmin)):
-                j += 1
+            while j + 1 < rp:
+                if _moving(j + 1, j, e[rp]):
+                    j += 1
+                    continue
+                nxt_j = next((m for m in range(j + 2, min(rp, j + 1 + bridge))
+                              if not np.isnan(e[m]) and e[m] - e[j] > 2 * vthr * (m - j)
+                              and e[m] < e[rp] - tol_r), None)
+                if nxt_j is None:
+                    break
+                j = nxt_j
             en = min(en, j)
             btol = max(2.0, 0.04 * (e[lp] - vmin))
             arr = bj
@@ -428,52 +485,71 @@ def analyze(landmarks: dict, thresholds: Optional[dict] = None) -> dict:
         pad = int(round(0.3 * fps))
         # lockout = how far the arms extend when finishing this rep (up to the next rep's start)
         nxt = reps_idx[r_i][0] if r_i < len(reps_idx) else n
-        a2, b2 = bj, max(bj + 1, min(n, en + pad + 1, nxt))
+        # (window reaches the next rep's start, max 1 s: a wobbly top - e.g. sleeves flapping - can push the
+        # detected rep end before the arms are actually straight)
+        a2, b2 = bj, max(bj + 1, min(n, en + int(round(1.0 * fps)) + 1, nxt + 1))
         sl = slice(st, en + 1)
         min_el = float(np.nanmin(elbow[sl])) if np.isfinite(elbow[sl]).any() else float(e_s[bj])
-        max_el = float(np.nanmax(elbow[a2:b2])) if np.isfinite(elbow[a2:b2]).any() else float(e_s[en])
+        # ...but never past a camera cut, and not frames after the rep where the person is getting up
+        # (straight arms while standing/kneeling must not hide a missing lockout)
+        top = elbow[a2:b2].copy()
+        idx2 = np.arange(a2, b2)
+        top[(seg_id[a2:b2] != seg_id[bj]) | ((idx2 > en) & (incline[a2:b2] > th["plank_max_incline_deg"]))] = np.nan
+        max_el = float(np.nanmax(top)) if np.isfinite(top).any() else float(e_s[en])
+        # hip / head faults use the level *held* for sustain_s (not a one-frame landmark jump)
+        w_sus = max(1, int(round(th["sustain_s"] * fps)))
         hs = hip_s[sl]
-        max_sag = float(max(0.0, np.nanmax(hs))) if np.isfinite(hs).any() else 0.0
-        max_pike = float(max(0.0, -np.nanmin(hs))) if np.isfinite(hs).any() else 0.0
+        sag_sus, pike_sus = _sustained(hs, w_sus), _sustained(-hs, w_sus)
+        max_sag = float(max(0.0, np.nanmax(sag_sus))) if np.isfinite(sag_sus).any() else 0.0
+        max_pike = float(max(0.0, np.nanmax(pike_sus))) if np.isfinite(pike_sus).any() else 0.0
         min_head = float(np.nanmin(head[sl])) if np.isfinite(head[sl]).any() else float("nan")
         hd = head_s[sl]
-        max_head_drop = float(max(0.0, np.nanmax(hd))) if np.isfinite(hd).any() else 0.0
+        hd_sus = _sustained(hd, w_sus)
+        max_head_drop = float(max(0.0, np.nanmax(hd_sus))) if np.isfinite(hd_sus).any() else 0.0
         descent = float(t_arr[arr] - t_arr[st])
         ascent = float(t_arr[en] - t_arr[lea])
         issues = []
+        minor = []   # within LEEWAY of the threshold: shown as a note, rep stays clean, no score cost
 
-        def add(code, ti, ta, tb, value, sev, msg):
-            issues.append({"code": code, "t": _r(t_arr[ti], 2), "t_start": _r(t_arr[ta], 2),
-                           "t_end": _r(t_arr[tb], 2), "value": _r(value), "severity": sev, "msg": msg})
+        def add(code, ti, ta, tb, value, sev, msg, excess=None):
+            item = {"code": code, "t": _r(t_arr[ti], 2), "t_start": _r(t_arr[ta], 2),
+                    "t_end": _r(t_arr[tb], 2), "value": _r(value), "severity": sev, "msg": msg}
+            if excess is not None and excess < leeway.get(code, 0.0):
+                item["severity"] = "low"
+                item["minor"] = True
+                minor.append(item)
+            else:
+                issues.append(item)
 
         if min_el > th["depth_deg"]:
             ex = min_el - th["depth_deg"]
             add("SHALLOW", bj, arr, lea, min_el, _sev(ex, 10, 25),
-                f"Only reached {min_el:.0f}° elbow bend (target < {th['depth_deg']:.0f}°)")
+                f"Only reached {min_el:.0f}° elbow bend (target < {th['depth_deg']:.0f}°)", ex)
         if max_el < th["lockout_deg"]:
             ex = th["lockout_deg"] - max_el
             add("NO_LOCKOUT", en, max(lea, en - pad), en, max_el, _sev(ex, 10, 20),
-                f"Arms only extended to {max_el:.0f}° at the top (target > {th['lockout_deg']:.0f}°)")
+                f"Arms only extended to {max_el:.0f}° at the top (target > {th['lockout_deg']:.0f}°)", ex)
         if max_sag > th["hip_sag_deg"]:
             pk = st + int(np.nanargmax(hs))
             wa, wb = _window(np.nan_to_num(hip_s, nan=-99) > th["hip_sag_deg"], pk)
             add("HIP_SAG", pk, max(wa, st), min(wb, en), max_sag, _sev(max_sag - th["hip_sag_deg"], 5, 12),
-                f"Hips sagged {max_sag:.0f}° below the shoulder-ankle line")
+                f"Hips sagged {max_sag:.0f}° below the shoulder-ankle line", max_sag - th["hip_sag_deg"])
         if max_pike > th["hip_pike_deg"]:
             pk = st + int(np.nanargmin(hs))
             wa, wb = _window(np.nan_to_num(hip_s, nan=99) < -th["hip_pike_deg"], pk)
             add("HIP_PIKE", pk, max(wa, st), min(wb, en), max_pike, _sev(max_pike - th["hip_pike_deg"], 5, 12),
-                f"Hips piked {max_pike:.0f}° above the shoulder-ankle line")
+                f"Hips piked {max_pike:.0f}° above the shoulder-ankle line", max_pike - th["hip_pike_deg"])
         if max_head_drop > th["head_drop_deg"]:
             pk = st + int(np.nanargmax(hd))
             wa, wb = _window(np.nan_to_num(head_s, nan=-99) > th["head_drop_deg"], pk)
             add("HEAD_DROP", pk, max(wa, st), min(wb, en), max_head_drop,
                 _sev(max_head_drop - th["head_drop_deg"], 8, 18),
-                f"Head dropped {max_head_drop:.0f}° below the body line")
+                f"Head dropped {max_head_drop:.0f}° below the body line", max_head_drop - th["head_drop_deg"])
         if descent < th["fast_descent_s"]:
             add("FAST_DESCENT", arr, st, arr, descent,
                 _sev(th["fast_descent_s"] - descent, 0.1, 0.2),
-                f"Descent took only {descent:.2f}s (aim for > {th['fast_descent_s']:.1f}s)")
+                f"Descent took only {descent:.2f}s (aim for > {th['fast_descent_s']:.1f}s)",
+                th["fast_descent_s"] - descent)
 
         score = 100.0 - sum(_PENALTY[i["code"]] * _SEV_FACTOR[i["severity"]] for i in issues)
         reps.append({
@@ -481,7 +557,7 @@ def analyze(landmarks: dict, thresholds: Optional[dict] = None) -> dict:
             "min_elbow": _r(min_el), "max_elbow": _r(max_el),
             "max_hip_sag": _r(max_sag), "max_hip_pike": _r(max_pike),
             "min_head": _r(min_head), "descent_s": _r(descent, 2), "ascent_s": _r(ascent, 2),
-            "score": _r(max(0.0, min(100.0, score))), "issues": issues,
+            "score": _r(max(0.0, min(100.0, score))), "issues": issues, "minor_issues": minor,
         })
 
     # ---------------------------------------------------------------- phase series
@@ -513,7 +589,8 @@ def analyze(landmarks: dict, thresholds: Optional[dict] = None) -> dict:
         if plank_frac < 0.3:
             posture_ok = False
             warnings.append("Body is mostly upright - this doesn't look like a push-up "
-                            f"(horizontal in {plank_frac*100:.0f}% of frames).")
+                            f"(horizontal in {plank_frac*100:.0f}% of frames). If the video plays sideways, "
+                            "rotate it so the floor is at the bottom and upload again.")
         ref = plank if plank.any() else valid
         swr = float(np.nanmedian(sw_ratio[ref])) if np.isfinite(sw_ratio[ref]).any() else 0.0
         if swr > th["side_view_max_ratio"]:
@@ -528,7 +605,9 @@ def analyze(landmarks: dict, thresholds: Optional[dict] = None) -> dict:
     if duration < 2.0:
         warnings.append(f"Clip is very short ({duration:.1f}s).")
     if not reps and valid.any():
-        warnings.append("No complete push-up reps detected.")
+        warnings.append("No complete push-up reps detected." + (
+            " The clip ends or cuts away before you push back up - film at least one full rep (down and up)."
+            if partial_reps else ""))
     confidence_ok = bool(confidence >= th["min_confidence"] and side_ok and posture_ok and valid.any())
 
     # ---------------------------------------------------------------- summary
@@ -542,6 +621,9 @@ def analyze(landmarks: dict, thresholds: Optional[dict] = None) -> dict:
         "avg_score": _r(np.mean([r["score"] for r in reps])) if reps else None,
         "fatigue_from_rep": fatigue_from,
         "issue_counts": issue_counts,
+        "minor_issue_counts": {c: sum(1 for r in reps if any(i["code"] == c for i in r.get("minor_issues", [])))
+                               for c in FAULT_CODES
+                               if any(i["code"] == c for r in reps for i in r.get("minor_issues", []))},
         "avg_descent_s": _r(np.mean([r["descent_s"] for r in reps]), 2) if reps else None,
         "avg_ascent_s": _r(np.mean([r["ascent_s"] for r in reps]), 2) if reps else None,
         "total_time_s": _r(reps[-1]["end"] - reps[0]["start"], 2) if reps else 0.0,

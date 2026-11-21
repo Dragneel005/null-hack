@@ -182,6 +182,24 @@ def main():
     # custom thresholds are respected
     r = A.analyze(side, thresholds={"depth_deg": 40})
     assert r["summary"]["issue_counts"].get("SHALLOW") == 6 and r["thresholds"]["depth_deg"] == 40
+
+    # leeway 1: baggy clothes -> brief hip landmark jumps (4 frames) on clean reps must not flag HIP_SAG
+    clip = make_clip(reps=5)
+    for i, f in enumerate(clip["frames"]):
+        if f["lm"] and i % 30 in (0, 1, 2, 3):
+            for k in ("l_hip", "r_hip"):
+                f["lm"][k][1] += 40
+    r = A.analyze(clip)
+    print(f"[leeway jitter] reps={r['summary']['rep_count']} clean={r['summary']['clean_reps']}")
+    assert r["summary"]["rep_count"] == 5 and r["summary"]["clean_reps"] == 5, r["summary"]
+    assert A.analyze(clip, {"sustain_s": 0})["summary"]["issue_counts"].get("HIP_SAG") == 5   # strict mode sees it
+
+    # leeway 2: arms read at 146 deg (wide sleeves) -> minor note, rep stays clean; 0 leeway -> fault
+    r = A.analyze(make_clip(reps=4, top=146))
+    print(f"[leeway lockout] clean={r['summary']['clean_reps']} minor={r['summary']['minor_issue_counts']}")
+    assert r["summary"]["clean_reps"] == 4 and r["summary"]["minor_issue_counts"] == {"NO_LOCKOUT": 4}
+    assert all(r_["minor_issues"][0]["code"] == "NO_LOCKOUT" for r_ in r["reps"])
+    assert A.analyze(make_clip(reps=4, top=146), {"leeway_scale": 0})["summary"]["clean_reps"] == 0
     print("ALL ANALYSIS TESTS PASSED")
 
 

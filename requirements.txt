@@ -1,11 +1,14 @@
-mediapipe>=0.10.14
-streamlit>=1.40
-opencv-python-headless>=4.9
-numpy>=1.26
-pandas>=2.0
-plotly>=5.20
-scikit-learn>=1.4
-anthropic>=0.40
-python-dotenv>=1.0
-imageio-ffmpeg>=0.5
-pytest>=8
+# Runtime dependencies (exact versions verified in the local .venv, Python 3.10).
+# Dev/test-only tools live in requirements-dev.txt.
+mediapipe==1.2.3
+streamlit==1.65.0
+opencv-python-headless==5.1.0.95
+numpy==2.2.6
+pandas==2.3.3
+plotly==7.1.0
+scikit-learn==1.7.2
+scipy==1.15.3
+pillow==12.3.0
+anthropic==2.12.0
+python-dotenv==1.2.4
+imageio-ffmpeg==0.8.1

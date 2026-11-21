@@ -1,0 +1,15 @@
+.venv/
+.git/
+outputs/
+data/
+__pycache__/
+**/__pycache__/
+*.pyc
+tests/
+docs/
+deploy/
+*.pdf
+.env
+.env.*
+.streamlit/secrets.toml
+.pytest_cache/

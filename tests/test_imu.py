@@ -74,7 +74,8 @@ def test_noise_is_seeded():
 
 
 def test_simulated_athlete_chest_strap_sees_one_push_per_rep():
-    s = synth.generate(n=1, seed=0, faults="none", camera="ideal")[0]
+    # our synth API: camera="side" + noise=0 is the clean, lateral equivalent of the old camera="ideal"
+    s = synth.generate(n=1, seed=0, faults="none", camera="side", noise=0.0)[0]
     out = imu.simulate(s["landmarks"], noise=False)
     assert len(out["sensors"]["chest"]["t"]) == s["landmarks"]["n_frames"]
     vy = np.asarray(out["sensors"]["chest"]["acc_world"])[:, 1] - imu.G

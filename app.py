@@ -20,7 +20,10 @@ import importlib
 import inspect
 import json
 import math
+import shutil
+import tempfile
 import time
+from datetime import datetime
 import traceback
 from pathlib import Path
 from typing import Any, Callable
@@ -62,7 +65,7 @@ st.set_page_config(
     page_title="FormSim — physical AI coach & simulator",
     page_icon="◆",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ----------------------------------------------------------------------------------------------
@@ -143,7 +146,7 @@ def load_module(name: str) -> tuple[Any, str | None]:
 
 MODS: dict[str, Any] = {}
 MOD_ERR: dict[str, str] = {}
-for _name in ("pose", "analysis", "physics", "coach", "overlay", "synth", "benchmark", "inject"):
+for _name in ("pose", "analysis", "physics", "coach", "overlay", "synth", "benchmark", "inject", "leaderboard"):
     _m, _err = load_module(_name)
     MODS[_name] = _m
     if _err:
@@ -260,9 +263,15 @@ def precomputed_landmarks(video: Path) -> Path | None:
 
 
 def get_landmarks(video: Path, vhash: str, model: str, progress: Callable[[float], None] | None) -> tuple[dict, str]:
-    """Pose track, cached on disk by (hash, model). Returns (landmarks, how)."""
+    """Pose track. Demo clips: cached on disk by (hash, model). User uploads: kept only in this
+    browser session's memory (privacy: nothing derived from an uploaded video is written to disk)."""
+    is_sample = video.parent.resolve() == SAMPLES.resolve()
+    mem = st.session_state.setdefault("_lm_mem", {})
+    mkey = f"{vhash}_{model}"
+    if mkey in mem:
+        return mem[mkey], "session cache"
     cache = OUT / "cache" / f"{vhash}_{model}.json"
-    if cache.exists():
+    if is_sample and cache.exists():
         return json.loads(cache.read_text()), "disk cache"
     pre = precomputed_landmarks(video)
     if pre is not None:   # demo clips always use the shipped track (no 1-2 min MediaPipe run on stage)
@@ -270,11 +279,27 @@ def get_landmarks(video: Path, vhash: str, model: str, progress: Callable[[float
     if mod("pose") is None:
         raise RuntimeError(f"pose module unavailable: {MOD_ERR.get('pose')}")
     lm = call_flex(mod("pose").extract, str(video), model=model, progress=progress)
-    try:
-        cache.write_text(json.dumps(lm))
-    except OSError:
-        pass
+    if is_sample:
+        try:
+            cache.write_text(json.dumps(lm))
+        except OSError:
+            pass
+    else:
+        mem.clear()   # keep at most one upload's track in memory
+        mem[mkey] = lm
     return lm, "MediaPipe Pose Landmarker"
+
+
+def demo_hashes() -> set[str]:
+    """Content hashes of the shipped sample clips (so they can't be submitted to the leaderboard)."""
+    out = set()
+    for p in (SAMPLES.iterdir() if SAMPLES.exists() else []):
+        if p.suffix.lower() in (".mp4", ".mov", ".webm", ".avi", ".m4v"):
+            try:
+                out.add(file_hash(p))
+            except OSError:
+                pass
+    return out
 
 
 @st.cache_data(show_spinner=False)
@@ -355,14 +380,9 @@ def _hero_stats() -> str:
 st.markdown(
     f"""
 <div class='fs-hero'>
-  <h1>Form<span>Sim</span> — physical AI coach &amp; simulator</h1>
-  <p>Film a side-view push-up set. We track 19 joints, count and grade every rep, simulate the forces on your
-  hands, elbows, shoulders and spine — and generate unlimited <b>labeled synthetic athletes</b> to train and
-  benchmark motion models.</p>
-  <span class='fs-pill lime'>Pose tracking</span><span class='fs-pill'>Biomechanics rules</span>
-  <span class='fs-pill'>Rigid-body physics</span><span class='fs-pill'>AI coach</span>
-  <span class='fs-pill lime'>Synthetic data engine</span><span class='fs-pill'>Sim-to-real benchmark</span>
-  {_hero_stats()}
+  <h1>Form<span>Sim</span> — push-up form coach</h1>
+  <p>Film a side-view push-up set. We count every rep, tell you how many were clean, grade your form and
+  give you the fixes that matter — then put you on the leaderboard.</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -372,8 +392,9 @@ st.markdown(
 # ----------------------------------------------------------------------------------------------
 # Pipeline
 # ----------------------------------------------------------------------------------------------
-def run_pipeline(video: Path, vhash: str, display_name: str) -> dict:
-    """Run pose -> analysis -> physics -> coach -> overlay with st.status progress. Returns result dict."""
+def run_pipeline(video: Path, vhash: str, display_name: str, private: bool = False) -> dict:
+    """Run pose -> analysis -> physics -> coach -> overlay with st.status progress. Returns result dict.
+    private=True (user uploads): the overlay is rendered next to the temp video, never into outputs/."""
     res: dict[str, Any] = {"video": str(video), "name": display_name, "hash": vhash, "errors": {}, "timings": {}}
     with st.status(f"Analyzing **{display_name}** …", expanded=True) as status:
         # 1. Pose
@@ -455,8 +476,8 @@ def run_pipeline(video: Path, vhash: str, display_name: str) -> dict:
                                  if (ROOT / f).exists())) % 100000
                 # body mass/height don't change the drawing enough to justify a 20 s re-render
                 okey = f"{vhash}_{pose_model}_{sim_fault}_{code_v}"
-                out_path = OUT / "overlays" / f"{okey}.mp4"
-                if out_path.exists() and out_path.stat().st_size > 1000:
+                out_path = (video.parent if private else OUT / "overlays") / f"{okey}.mp4"
+                if not private and out_path.exists() and out_path.stat().st_size > 1000:
                     res["overlay"] = str(out_path)
                     st.write("   ✓ overlay (cached)")
                 else:
@@ -477,6 +498,44 @@ def run_pipeline(video: Path, vhash: str, display_name: str) -> dict:
         bad = [k for k in res["errors"]]
         status.update(label=f"Done — {display_name}" + (f" (issues in: {', '.join(bad)})" if bad else ""),
                       state="error" if "pose" in bad or "analysis" in bad else "complete", expanded=False)
+    return res
+
+
+def worst_reps(an: dict) -> list[tuple[dict, list, float]]:
+    """Up to 3 lowest-scoring reps with their issues and the time to freeze a snapshot at."""
+    out = []
+    for r in sorted(an.get("reps", []), key=lambda r: (r.get("score") or 100))[:3]:
+        iss = sorted(r.get("issues") or [], key=lambda i: {"high": 0, "med": 1}.get(i.get("severity"), 2))
+        t = iss[0].get("t") if iss and iss[0].get("t") is not None else r.get("bottom", r.get("start", 0))
+        out.append((r, iss, float(t or 0)))
+    return out
+
+
+def run_upload_pipeline(data: bytes, suffix: str, vhash: str, display_name: str) -> dict:
+    """Privacy wrapper for user uploads: the video lives in a temp dir only while it's analyzed.
+    The overlay + worst-rep snapshots are read into memory (this session only), then everything is deleted."""
+    tmp = Path(tempfile.mkdtemp(prefix="formsim_"))
+    try:
+        vid = tmp / f"clip{suffix}"
+        vid.write_bytes(data)
+        res = run_pipeline(vid, vhash, display_name, private=True)
+        ov = res.get("overlay")
+        if ov and Path(ov).exists():
+            res["overlay_bytes"] = Path(ov).read_bytes()
+        res["overlay"] = None
+        an = res.get("analysis")
+        snaps: dict[float, Any] = {}
+        if an and res.get("landmarks") and mod("overlay") is not None and hasattr(mod("overlay"), "snapshot"):
+            for _r, _iss, t in worst_reps(an):
+                try:
+                    snaps[t] = mod("overlay").snapshot(str(vid), res["landmarks"], an, t)
+                except Exception:  # noqa: BLE001
+                    pass
+        res["snapshots"] = snaps
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    res["video"] = ""
+    res["upload"] = True
     return res
 
 
@@ -802,16 +861,25 @@ def tab_analyze() -> None:
         demo_clicked = st.button(f"▶ Run demo: {demo_choice.split(' — ')[0]}", type="primary",
                                  width="stretch", key="demo_btn")
         st.caption("Uses the demo clip chosen in the sidebar.")
+    u1, u2 = st.columns([1, 2], vertical_alignment="center")
+    with u1:
+        st.text_input("Username for the leaderboard (optional)", key="lb_user", max_chars=20,
+                      placeholder="e.g. pushup_pete")
+    with u2:
+        lbm = mod("leaderboard")
+        st.checkbox(getattr(lbm, "CONSENT_TEXT", "This is me, and I agree to my username and score being shown "
+                                                 "on the public leaderboard"), key="lb_consent")
+    st.caption("🔒 " + getattr(lbm, "PRIVACY_TEXT", "We don't keep your video — only your username and score."))
 
+    upload_bytes = None
     if up is not None:
-        data = up.getvalue()
-        h = hashlib.sha1(data).hexdigest()[:16]
+        upload_bytes = up.getvalue()
+        h = hashlib.sha1(upload_bytes).hexdigest()[:16]
         if st.session_state.get("_last_upload_hash") != h:
             st.session_state["_last_upload_hash"] = h
-            dest = OUT / "uploads" / f"{h}{Path(up.name).suffix.lower() or '.mp4'}"
-            if not dest.exists():
-                dest.write_bytes(data)
-            st.session_state["source"] = {"path": str(dest), "hash": h, "name": up.name}
+            # privacy: the upload is NOT written to disk here; run_upload_pipeline uses a temp file and deletes it
+            st.session_state["source"] = {"path": "", "hash": h, "name": up.name, "upload": True,
+                                          "suffix": Path(up.name).suffix.lower() or ".mp4"}
     # ?demo=1 in the URL auto-runs the demo once (handy for a shareable judge link)
     auto = st.query_params.get("demo") and not st.session_state.get("_auto_demo_done")
     if auto:
@@ -826,15 +894,27 @@ def tab_analyze() -> None:
     src = st.session_state.get("source")
     if not src:
         st.markdown(
-            "<div class='fs-ph' style='padding:2.2rem'>Upload a clip or hit <b>Run demo</b> to see the full "
-            "pipeline: pose → biomechanics → physics → coach → annotated video.</div>",
+            "<div class='fs-ph' style='padding:2.2rem'>Upload a clip or hit <b>Run demo</b> — you'll get your rep "
+            "count, clean reps, a form grade, an annotated video and your top coaching tips.</div>",
             unsafe_allow_html=True)
         return
+    is_upload = bool(src.get("upload"))
+    if is_upload and upload_bytes is not None and st.session_state.get("_last_upload_hash") != src["hash"]:
+        upload_bytes = None
 
     key = result_key(src["hash"])
     cache = st.session_state.setdefault("results", {})
     if key not in cache:
-        cache[key] = run_pipeline(Path(src["path"]), src["hash"], src["name"])
+        if is_upload:
+            if upload_bytes is None:
+                st.info("Your video isn't kept on our side — upload it again to re-analyze with these settings.")
+                return
+            # only the latest upload's result is kept (in memory) for this session
+            for k in [k for k, v in cache.items() if v.get("upload")]:
+                cache.pop(k, None)
+            cache[key] = run_upload_pipeline(upload_bytes, src.get("suffix", ".mp4"), src["hash"], src["name"])
+        else:
+            cache[key] = run_pipeline(Path(src["path"]), src["hash"], src["name"])
     res = cache[key]
     st.session_state["current"] = res
 
@@ -853,35 +933,37 @@ def tab_analyze() -> None:
             placeholder("analysis", "rep counting and fault detection will appear here")
         return
 
+    from html import escape as _esc
     if not an.get("confidence_ok", True):
-        warns = "<br>".join(f"• {w}" for w in an.get("warnings", []))
+        warns = "<br>".join(f"• {_esc(str(w))}" for w in an.get("warnings", []))
         conf = float(an.get("confidence") or 0)
         thr = float((an.get("thresholds") or {}).get("min_confidence", 0.5))
         head = (f"Low tracking confidence ({fmt(conf * 100, 0)}%)." if conf < thr
                 else "Couldn't score this clip.")
         st.markdown(f"<div class='fs-banner'><b>{head}</b> For best results film from the side with the whole body "
                     f"in frame.<br>{warns}</div>", unsafe_allow_html=True)
-    elif an.get("warnings"):
-        st.caption("Notes: " + " · ".join(an["warnings"]))
 
+    # ---- result card: reps / clean reps / grade / form score
     s = an.get("summary", {})
     avg = s.get("avg_score")
     avg_cls = "lime" if (avg or 0) >= 80 else ("amber" if (avg or 0) >= 60 else "red")
-    fat = s.get("fatigue_from_rep")
+    grade = str((rp or {}).get("grade") or "—")
     cards([
         ("Reps", fmt(s.get("rep_count"), 0), f"{fmt(s.get('total_time_s'), 0, ' s')} set", "lime"),
-        ("Clean reps", fmt(s.get("clean_reps"), 0), f"of {fmt(s.get('rep_count'), 0)}", ""),
+        ("Clean reps", fmt(s.get("clean_reps"), 0), f"of {fmt(s.get('rep_count'), 0)} · pass every form check", ""),
+        ("Grade", grade, "AI coach", {"A": "lime", "B": "", "C": "amber", "D": "red"}.get(grade, "")),
         ("Avg form score", fmt(avg, 0), "out of 100", avg_cls),
-        ("Fatigue from", f"rep {fat}" if fat else "none", "form/tempo drift vs. first reps", "amber" if fat else ""),
-        ("Tempo", f"{fmt(s.get('avg_descent_s'), 1)} / {fmt(s.get('avg_ascent_s'), 1)}", "descent / ascent (s)", ""),
-        ("Tracking", fmt((an.get("confidence") or 0) * 100, 0, "%"), f"{an.get('side', '?')} side · {res.get('pose_how', '')}",
-         "" if an.get("confidence_ok", True) else "red"),
     ])
 
     left, right = st.columns([1.15, 1])
     with left:
-        if res.get("overlay") and Path(res["overlay"]).exists():
+        if res.get("overlay_bytes"):
+            st.video(res["overlay_bytes"], format="video/mp4")
+        elif res.get("overlay") and Path(res["overlay"]).exists():
             st.video(res["overlay"])
+        elif is_upload:
+            if upload_bytes is not None:
+                st.video(upload_bytes)
         else:
             st.video(src["path"])
             if render_overlay and mod("overlay") is None:
@@ -892,64 +974,158 @@ def tab_analyze() -> None:
         elif mod("coach") is None:
             placeholder("coach", "AI coach report")
 
-    st.plotly_chart(angle_chart(an), width="stretch", key="angle_chart")
+    leaderboard_submit(res, src)
 
-    section("Per-rep scorecard", "")
+    # ---- everything secondary lives in expanders
+    with st.expander("📈 Details — tempo, fatigue, tracking, joint angles", expanded=False):
+        if an.get("warnings") and an.get("confidence_ok", True):
+            st.caption("Notes: " + " · ".join(an["warnings"]))
+        fat = s.get("fatigue_from_rep")
+        cards([
+            ("Fatigue from", f"rep {fat}" if fat else "none", "form/tempo drift vs. first reps", "amber" if fat else ""),
+            ("Tempo", f"{fmt(s.get('avg_descent_s'), 1)} / {fmt(s.get('avg_ascent_s'), 1)}", "descent / ascent (s)", ""),
+            ("Tracking", fmt((an.get("confidence") or 0) * 100, 0, "%"),
+             f"{an.get('side', '?')} side · {res.get('pose_how', '')}", "" if an.get("confidence_ok", True) else "red"),
+        ])
+        st.plotly_chart(angle_chart(an), width="stretch", key="angle_chart")
+
     df = scorecard_df(an)
-    if len(df):
-        st.dataframe(style_scorecard(df), width="stretch", hide_index=True)
-        if rp and rp.get("per_rep"):
-            with st.expander("Coach notes per rep"):
+    with st.expander("📋 Per-rep scorecard", expanded=False):
+        if len(df):
+            st.dataframe(style_scorecard(df), width="stretch", hide_index=True)
+            if rp and rp.get("per_rep"):
+                st.markdown("**Coach notes per rep**")
                 for pr in rp["per_rep"]:
                     st.markdown(f"**Rep {pr.get('n')}** — {pr.get('note', '')}")
-    elif any("camera cut" in w for w in an.get("warnings", [])):
-        items = "".join(f"<li>{w}</li>" for w in an.get("warnings", []))
-        st.markdown(f"<div class='fs-coach'><b style='color:{CYAN}'>Robustness report</b> — this clip is an edited "
-                    f"montage, not one continuous set. Instead of inventing reps, FormSim detected the edits and "
-                    f"refused to count partial reps:<ul style='margin:.4rem 0 0 0;color:#B7C3CE'>{items}</ul>"
-                    f"<div class='fs-src'>Tracking stayed on the athlete at "
-                    f"{fmt((an.get('confidence') or 0) * 100, 0)}% confidence.</div></div>", unsafe_allow_html=True)
-    else:
-        st.info("No reps detected. Make sure the clip shows full push-ups from the side.")
+        elif any("camera cut" in w for w in an.get("warnings", [])):
+            items = "".join(f"<li>{_esc(str(w))}</li>" for w in an.get("warnings", []))
+            st.markdown(f"<div class='fs-coach'><b style='color:{CYAN}'>Robustness report</b> — this clip is an "
+                        f"edited montage, not one continuous set. Instead of inventing reps, FormSim detected the "
+                        f"edits and refused to count partial reps:<ul style='margin:.4rem 0 0 0;color:#B7C3CE'>"
+                        f"{items}</ul><div class='fs-src'>Tracking stayed on the athlete at "
+                        f"{fmt((an.get('confidence') or 0) * 100, 0)}% confidence.</div></div>",
+                        unsafe_allow_html=True)
+        else:
+            st.info("No reps detected. Make sure the clip shows full push-ups from the side.")
 
     # Worst-rep snapshots
     reps = an.get("reps", [])
     if reps:
         any_issue = any(r.get("issues") for r in reps)
-        section("Worst reps" if any_issue else "Rep snapshots",
-                "· frozen at the fault" if any_issue else "· at the bottom position")
-        if mod("overlay") is None or not hasattr(mod("overlay"), "snapshot"):
-            placeholder("overlay", "snapshot thumbnails")
-        else:
-            worst = sorted(reps, key=lambda r: (r.get("score") or 100))[:3]
-            cols = st.columns(len(worst))
-            for col, r in zip(cols, worst):
-                iss = sorted(r.get("issues") or [], key=lambda i: {"high": 0, "med": 1}.get(i.get("severity"), 2))
-                t = iss[0].get("t") if iss and iss[0].get("t") is not None else r.get("bottom", r.get("start", 0))
-                with col:
-                    try:
-                        img = snapshot_cached(src["path"], f"{key}|{t}", float(t or 0), lm, an)
-                        st.image(img, width="stretch")
-                    except Exception as e:  # noqa: BLE001
-                        st.caption(f"snapshot failed: {e}")
-                    st.caption(f"Rep {r.get('n')} · score {fmt(r.get('score'), 0)} · "
-                               + (iss[0].get("msg", iss[0].get("code")) if iss else "clean"))
+        with st.expander("📸 " + ("Worst reps — frozen at the fault" if any_issue
+                                   else "Rep snapshots — at the bottom position"), expanded=False):
+            if mod("overlay") is None or not hasattr(mod("overlay"), "snapshot"):
+                placeholder("overlay", "snapshot thumbnails")
+            else:
+                worst = worst_reps(an)
+                cols = st.columns(len(worst))
+                for col, (r, iss, t) in zip(cols, worst):
+                    with col:
+                        try:
+                            if is_upload:
+                                img = (res.get("snapshots") or {}).get(t)
+                                if img is None:
+                                    raise RuntimeError("not available")
+                            else:
+                                img = snapshot_cached(src["path"], f"{key}|{t}", t, lm, an)
+                            st.image(img, width="stretch")
+                        except Exception as e:  # noqa: BLE001
+                            st.caption(f"snapshot failed: {e}")
+                        st.caption(f"Rep {r.get('n')} · score {fmt(r.get('score'), 0)} · "
+                                   + (iss[0].get("msg", iss[0].get("code")) if iss else "clean"))
 
-    section("Downloads", "")
-    d1, d2, d3, d4 = st.columns(4)
-    stem = Path(src["name"]).stem
-    d1.download_button("Analysis JSON", dumps(an), f"{stem}_analysis.json", "application/json",
-                       width="stretch")
-    d2.download_button("Landmarks JSON", json.dumps(to_jsonable(lm)), f"{stem}_landmarks.json",
-                       "application/json", width="stretch")
-    if res.get("overlay") and Path(res["overlay"]).exists():
-        _ov = res["overlay"]
-        d3.download_button("Overlay MP4", lambda: Path(_ov).read_bytes(), f"{stem}_formsim.mp4", "video/mp4",
-                           width="stretch", on_click="ignore")
+    with st.expander("⬇ Downloads", expanded=False):
+        d1, d2, d3, d4 = st.columns(4)
+        stem = Path(src["name"]).stem
+        d1.download_button("Analysis JSON", dumps(an), f"{stem}_analysis.json", "application/json",
+                           width="stretch")
+        d2.download_button("Landmarks JSON", json.dumps(to_jsonable(lm)), f"{stem}_landmarks.json",
+                           "application/json", width="stretch")
+        if res.get("overlay_bytes"):
+            d3.download_button("Overlay MP4", res["overlay_bytes"], f"{stem}_formsim.mp4", "video/mp4",
+                               width="stretch", on_click="ignore")
+        elif res.get("overlay") and Path(res["overlay"]).exists():
+            _ov = res["overlay"]
+            d3.download_button("Overlay MP4", lambda: Path(_ov).read_bytes(), f"{stem}_formsim.mp4", "video/mp4",
+                               width="stretch", on_click="ignore")
+        else:
+            d3.button("Overlay MP4", disabled=True, width="stretch")
+        d4.download_button("Report (Markdown)", report_markdown(res), f"{stem}_report.md", "text/markdown",
+                           width="stretch", type="primary")
+
+
+def _md_safe(name: str) -> str:
+    """Escape markdown control chars in a (validated) username."""
+    import re as _re
+    return _re.sub(r"([\\`*_{}\[\]()#+\-.!|<>~])", r"\\\1", str(name))
+
+
+def leaderboard_submit(res: dict, src: dict) -> None:
+    """The 'Submit to leaderboard' step under the result card (anti-cheat gated, consent required)."""
+    lbm = mod("leaderboard")
+    if lbm is None:
+        return
+    an = res.get("analysis") or {}
+    section("🏆 Leaderboard", "")
+    done = st.session_state.setdefault("lb_done", {})
+    sub_key = f"{src.get('hash')}|{sim_fault}"
+    if sub_key in done:
+        name, rank, n = done[sub_key]
+        if rank:
+            st.success(f"Submitted as **{_md_safe(name)}** — you're **#{rank}** of {n} on the leaderboard. "
+                       "See the Leaderboard tab.")
+        else:
+            st.success(f"Submitted as **{_md_safe(name)}**.")
+        return
+    is_demo = (not src.get("upload")) or src.get("hash") in demo_hashes()
+    consent = bool(st.session_state.get("lb_consent"))
+    ok, why = lbm.can_submit(an, consent, is_demo=is_demo, simulated=sim_fault != "none")
+    if ok:
+        ok, name = lbm.validate_username(st.session_state.get("lb_user", ""))
+        why = "" if ok else f"Username: {name} (enter it above)"
+    if not ok:
+        st.caption(f"Can't submit this one: {why}")
+        return
+    s = an.get("summary") or {}
+    st.caption(f"Ranked by clean reps — you'd enter with **{int(s.get('clean_reps') or 0)} clean** of "
+               f"{int(s.get('rep_count') or 0)} reps.")
+    if st.button(f"🏆 Submit to leaderboard as {name}", type="primary", key="lb_submit"):
+        try:
+            lbm.submit(name, int(s.get("clean_reps") or 0), int(s.get("rep_count") or 0), s.get("avg_score"),
+                       (res.get("coach") or {}).get("grade"))
+            rank, n = lbm.rank_of(name)
+            done[sub_key] = (name, rank, n)
+            st.success(f"Submitted as **{_md_safe(name)}** — you're **#{rank}** of {n} on the leaderboard.")
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Couldn't save your score: {e}")
+
+
+def tab_leaderboard() -> None:
+    lbm = mod("leaderboard")
+    if lbm is None:
+        placeholder("leaderboard", "public leaderboard")
+        return
+    st.markdown("### 🏆 Push-up leaderboard")
+    st.caption("Ranked by **clean reps** (reps that pass every form check — half reps don't count), then average "
+               "form score, then whoever got there first. Best entry per username. No login needed: analyze your "
+               "own clip on the Analyze tab, tick the consent box and hit Submit.")
+    try:
+        rows = lbm.top(20)
+    except Exception as e:  # noqa: BLE001
+        st.error(f"Leaderboard unavailable: {e}")
+        return
+    if not rows:
+        st.markdown("<div class='fs-ph' style='padding:2rem'>No scores yet — be the first!</div>",
+                    unsafe_allow_html=True)
     else:
-        d3.button("Overlay MP4", disabled=True, width="stretch")
-    d4.download_button("Report (Markdown)", report_markdown(res), f"{stem}_report.md", "text/markdown",
-                       width="stretch", type="primary")
+        df = pd.DataFrame([{
+            "Rank": r["rank"], "Username": r["username"], "Clean reps": r["clean_reps"],
+            "Total reps": r["total_reps"],
+            "Avg form score": None if r.get("avg_score") is None else round(float(r["avg_score"])),
+            "Date": datetime.fromtimestamp(float(r["ts"])).strftime("%Y-%m-%d"),
+        } for r in rows])
+        st.dataframe(df, hide_index=True, width="stretch")
+    st.caption("🔒 " + lbm.PRIVACY_TEXT)
 
 
 def tab_physics() -> None:
@@ -1409,6 +1585,9 @@ def tab_about() -> None:
         f"exactly.<br><b style='color:{ACCENT}'>Proof.</b> We benchmark a real-video analyzer against simulated "
         f"ground truth and train a fault model on simulation only, then run it on real video.{proof}</div>",
         unsafe_allow_html=True)
+    _hs = _hero_stats()
+    if _hs:
+        st.markdown(_hs, unsafe_allow_html=True)
     st.markdown("### How it works")
     dot = f"""
 digraph G {{
@@ -1469,11 +1648,23 @@ digraph G {{
 # ----------------------------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------------------------
-tabs = st.tabs(["◆ Analyze", "⚛ Physics", "🧪 Sim Lab", "ⓘ How it works"])
-for _tab, _fn, _label in zip(tabs, (tab_analyze, tab_physics, tab_simlab, tab_about),
-                             ("Analyze", "Physics", "Sim Lab", "How it works")):
+def _safe(fn: Callable, label: str) -> None:
+    try:
+        fn()
+    except Exception as _e:  # noqa: BLE001
+        show_exception(label, _e)
+
+
+def tab_under_the_hood() -> None:
+    st.caption("The engine behind the coach: joint-load physics, our synthetic-athlete simulator and how it all fits.")
+    sub = st.tabs(["⚛ Physics", "🧪 Sim Lab", "ⓘ How it works"])
+    for _t, _fn, _label in zip(sub, (tab_physics, tab_simlab, tab_about), ("Physics", "Sim Lab", "How it works")):
+        with _t:
+            _safe(_fn, _label)
+
+
+tabs = st.tabs(["◆ Analyze", "🏆 Leaderboard", "⚙ Under the hood"])
+for _tab, _fn, _label in zip(tabs, (tab_analyze, tab_leaderboard, tab_under_the_hood),
+                             ("Analyze", "Leaderboard", "Under the hood")):
     with _tab:
-        try:
-            _fn()
-        except Exception as _e:  # noqa: BLE001
-            show_exception(_label, _e)
+        _safe(_fn, _label)
