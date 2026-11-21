@@ -44,8 +44,33 @@ def _pick_person(poses, w, h):
     return best
 
 
+def _hampel(frames: list[dict], window: int = 7, k: float = 3.0, floor_px: float = 3.0) -> list[dict]:
+    """Replace single-frame jumps with the local median (Hampel filter, per landmark x/y).
+
+    Loose clothing and brief occlusions make MediaPipe jump a joint for a frame or two; a
+    moving average would smear that spike into its neighbours, this removes it instead.
+    """
+    half = window // 2
+    valid = [i for i, f in enumerate(frames) if f["lm"] is not None]
+    if len(valid) < 3:
+        return frames
+    out = [f if f["lm"] is None else {**f, "lm": {n: list(v) for n, v in f["lm"].items()}} for f in frames]
+    names = frames[valid[0]]["lm"].keys()
+    for name in names:
+        for c in (0, 1):
+            series = np.array([frames[i]["lm"][name][c] for i in valid], dtype=float)
+            for pos, i in enumerate(valid):
+                seg = series[max(0, pos - half): pos + half + 1]
+                med = float(np.median(seg))
+                mad = float(np.median(np.abs(seg - med)))
+                if abs(series[pos] - med) > max(k * 1.4826 * mad, floor_px):
+                    out[i]["lm"][name][c] = med
+    return out
+
+
 def smooth(frames: list[dict], window: int = 5) -> list[dict]:
-    """Centered moving average over valid frames (per landmark, x/y only)."""
+    """Outlier removal (Hampel) then centered moving average over valid frames (x/y only)."""
+    frames = _hampel(frames)
     if window <= 1:
         return frames
     half = window // 2

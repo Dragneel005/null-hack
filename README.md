@@ -87,12 +87,14 @@ and simulated clips come with answers to check against.
 | Module | Job |
 |---|---|
 | `pose.py` | Video → 19 body landmarks per frame, in pixels and in metres |
-| `analysis.py` | Landmarks → reps, angles, faults, fatigue point |
+| `activity.py` | Is this a push-up at all? Finds the push-up part of the clip, trims getting into position and standing up |
+| `analysis.py` | Landmarks → reps, angles, faults, fatigue point; judges hips, head and lockout against your own top position, so loose clothes don't read as sagging |
 | `coach.py` | Analysis → headline, top two fixes with cues, per-rep notes |
 | `overlay.py` | Draws the skeleton on your video; joints turn red during a fault; rep counter and elbow angle on screen |
 | `video.py` | The only module that touches video files: saves uploads, makes browser-playable H.264, grabs frames |
 | `synth.py` | Simulated athletes and dataset export |
 | `imu.py` | Simulated chest / hip / wrist IMU |
+| `benchmark.py` | Scores the analyzer against simulated ground truth, split by condition (e.g. baggy vs fitted clothes) |
 | `app.py` | The web app |
 
 ## The physical-AI part
@@ -129,19 +131,35 @@ The tests check behaviour against independent facts, not against the code's own 
 - a still sensor reads 9.81 m/s²; a 10 cm, 1 Hz bounce gives the textbook 3.95 m/s² peak; a torso rotating at 30°/s reads 30°/s
 - the overlay is H.264, keeps every frame, and turns the hip red only while `HIP_SAG` is active
 - uploads are content-addressed; frame grabs return the right frame
+- the analyzer counts the real beach clip's 6 reps exactly, finds every fault type on the right reps, and doesn't flag clean reps in baggy clothes as sagging
+- a single-frame landmark jump is removed while real movement passes through untouched
+
+**Benchmark** (`python benchmark.py`): 120 simulated athletes, random cameras (up to 25° off side view,
+24–60 fps, jitter, dropped frames), mixed faults, half in baggy clothes:
+
+| | Result |
+|---|---|
+| Rep count exactly right | 120 / 120 clips |
+| `SHALLOW`, `NO_LOCKOUT`, `HIP_SAG`, `HIP_PIKE`, `HEAD_DROP` | precision and recall 100% |
+| `FAST_DESCENT` | precision 100%, recall 90% (24 fps leaves ~5 frames for a 0.2 s drop) |
+| Baggy clothes, before the own-baseline fix | 4.4% of clean reps falsely flagged as hip sag → 0% after |
+
+These are simulated clips scored with the same fault definitions they were generated from, so
+read them as a regression test of the pipeline, not as real-world accuracy. Real-world check so far:
+the beach clip, 6 / 6 reps.
 
 ## Status
 
 | | |
 |---|---|
-| ✅ Done | `pose.py`, `coach.py`, `app.py`, `overlay.py`, `video.py`, `synth.py`, `imu.py` |
-| 🚧 In progress | `analysis.py` (until it lands, the app falls back to `samples/sample_analysis.json` and shows a yellow banner) |
-| 🗺️ Next | `physics.py` (joint loads), `benchmark.py` (score the analyzer on simulated ground truth), a Sim Lab tab in the app, real wearable sync |
+| ✅ Done | `pose.py`, `activity.py`, `analysis.py`, `coach.py`, `app.py`, `overlay.py`, `video.py`, `synth.py`, `imu.py`, `benchmark.py` |
+| 🗺️ Next | `physics.py` (joint loads), a Sim Lab tab in the app, more hand-labelled real clips, real wearable sync |
 
 ## Repository
 
 ```
-app.py  pose.py  coach.py  overlay.py  video.py  synth.py  imu.py
+app.py  pose.py  activity.py  analysis.py  coach.py  overlay.py  video.py
+synth.py  imu.py  benchmark.py
 CONTRACT.md        the data formats between modules (start here if you're contributing)
 samples/           demo clips, real landmarks, mock analysis for the demo
 models/            MediaPipe pose models

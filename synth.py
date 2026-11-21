@@ -176,6 +176,12 @@ def _athlete(rng, idx, faults, camera, cloth=None):
     for i, fs in enumerate(rep_faults):
         if "NO_LOCKOUT" in fs:
             tops[i] = tops[i + 1] = float(rng.uniform(146, 152))
+    # a rep lacks lockout iff the arm never straightens at either end (neighbours share tops)
+    for i, fs in enumerate(rep_faults):
+        if "NO_LOCKOUT" in fs:
+            fs.remove("NO_LOCKOUT")
+        if max(tops[i], tops[i + 1]) < 155:
+            fs.append("NO_LOCKOUT")
 
     # timeline of segments (t0, t1, a0, a1, rep_index or None)
     t = float(rng.uniform(0.5, 1.5))

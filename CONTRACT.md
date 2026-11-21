@@ -29,7 +29,10 @@ landmarks = {
 Landmark names: `nose l_ear r_ear l_shoulder r_shoulder l_elbow r_elbow l_wrist r_wrist l_hip r_hip l_knee r_knee l_ankle r_ankle l_heel r_heel l_foot r_foot`.
 Real samples: `samples/landmarks_demo_side.json` (beach silhouette, 640x480, 51 s, **ground truth = 6 slow full reps**, good form, long holds at top between reps) and `samples/landmarks_demo_army.json` (20 s, 1280x720, has camera cuts / multiple people — robustness test, hand-release push-ups, ~2-3 reps visible).
 
-## 2. `analysis.py` — `analyze(landmarks, strict=False, thresholds=None) -> analysis`
+## 2. `analysis.py` (DONE) — `analyze(landmarks, strict=False, thresholds=None) -> analysis`
+Extras it also returns: `"activity"` (activity.detect result minus per-frame flags), `"hip_baseline"` (deg), `"confidence_ok"`,
+per rep `"descent_s"`, `"ascent_s"`. `series.hip_dev` is relative to the athlete's own top-of-rep line (baggy-clothes fix).
+`activity.py` (DONE): `detect(landmarks) -> {"is_pushup", "confidence", "reason", "segments", "cycles", "in_pushup"}`.
 `app.py` imports it as `rules` (`import analysis as rules`). `strict=True` = chest-near-floor standard, False = 90° test standard.
 
 ```jsonc
@@ -103,7 +106,7 @@ FAST_DESCENT→shoulder+elbow), HUD: rep counter, elbow angle, current issue mes
 - `export(samples, out_dir) -> zip_path` (JSONL + per-frame CSV + README/datasheet).
 - `render_preview(sample, t) -> plotly Figure` or frames, so the app can show simulated skeletons.
 
-## 7. `benchmark.py` (after build)
+## 7. `benchmark.py` (DONE: evaluate_analyzer, format_report; sim_to_real not built)
 - `evaluate_analyzer(samples) -> metrics` — run `analysis.analyze` on simulated clips with known truth → rep-count accuracy, per-fault precision/recall.
 - `sim_to_real(samples, real_landmarks_list) -> metrics` — train sklearn classifier on per-rep features from simulation only, apply to real clip reps.
 
