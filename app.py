@@ -77,7 +77,8 @@ h1, h2, h3, h4 {{ font-family: 'Archivo', 'IBM Plex Sans', sans-serif; letter-sp
 [data-testid="stMetric"] {{ background:{CARD}; border:1px solid {LINE}; border-radius:14px; padding:14px 18px; }}
 [data-testid="stMetricLabel"] p {{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.06em;
                                    text-transform:uppercase; color:{MUTED}; }}
-[data-testid="stMetricValue"] {{ font-family:'Archivo',sans-serif; font-weight:800; color:{INK}; }}
+[data-testid="stMetricValue"] {{ font-family:'Archivo',sans-serif; font-weight:800; color:{INK};
+                                 font-variant-numeric: tabular-nums; }}
 
 div[class*="st-key-rep_"], div[class*="st-key-rep_"] > div {{ width:100%; }}
 div[class*="st-key-rep_"] button {{
@@ -129,7 +130,10 @@ def _worst_frames(path: str, analysis: dict, k: int = 2) -> list[bytes]:
 
 
 def run_pipeline(video_path: str | None, strict: bool, fast: bool = False) -> dict:
+    """Demo mode uses samples/. A real upload never falls back to sample numbers: if tracking or
+    analysis fails, the result carries an error state instead."""
     mocked, errors = [], []
+    holder = st.empty()
 
     def stage(name, fn, fallback):
         try:
@@ -141,22 +145,32 @@ def run_pipeline(video_path: str | None, strict: bool, fast: bool = False) -> di
             errors.append((name, traceback.format_exc()))
         return fallback()
 
-    with st.status("Analysing your set…", expanded=True) as status:
+    with holder.status("Analysing your set…", expanded=True) as status:
         st.write("Tracking your joints…")
         if video_path:
             bar = st.progress(0.0, text="Tracking your joints, frame by frame")
-            landmarks = stage("pose", lambda: pose.extract(video_path, frame_step=2 if fast else 1,
-                                                          progress=lambda f: bar.progress(
-                min(f, 1.0), text=f"Tracking your joints, frame by frame ({f:.0%})")),
-                lambda: _load(SAMPLE_LANDMARKS))
+            try:
+                landmarks = pose.extract(video_path, frame_step=2 if fast else 1,
+                                         progress=lambda f: bar.progress(
+                                             min(f, 1.0), text=f"Tracking your joints, frame by frame ({f:.0%})"))
+            except Exception:
+                holder.empty()
+                return {"error": "unreadable", "detail": traceback.format_exc()}
             bar.empty()
         else:  # demo mode
             landmarks = _load(SAMPLE_LANDMARKS)
             mocked.append("demo clip")
 
         st.write("Measuring every rep…")
-        analysis = stage("analysis", lambda: rules.analyze(landmarks, strict=strict),
-                         lambda: _load(SAMPLE_ANALYSIS))
+        if video_path:
+            try:
+                analysis = rules.analyze(landmarks, strict=strict)
+            except Exception:
+                holder.empty()
+                return {"error": "analysis", "detail": traceback.format_exc()}
+        else:
+            analysis = stage("analysis", lambda: rules.analyze(landmarks, strict=strict),
+                             lambda: _load(SAMPLE_ANALYSIS))
 
         overlay = None
         if video_path:
@@ -177,6 +191,7 @@ def run_pipeline(video_path: str | None, strict: bool, fast: bool = False) -> di
         frames = _worst_frames(overlay, analysis) if overlay and "overlay" not in mocked else None
         fb = coach.feedback(analysis, frames)
         status.update(label="Analysis complete", state="complete", expanded=False)
+    holder.empty()
 
     return {"analysis": analysis, "feedback": fb, "video": overlay, "mocked": mocked,
             "errors": errors, "imu": wearable}
@@ -322,18 +337,64 @@ def coach_card(fb: dict):
         st.caption(f"LLM unavailable, used the rule-based coach ({fb['llm_error']})")
 
 
+FILM_TIPS = ("Film from the side with the phone in landscape on the floor, 2–3 m away, so your whole "
+             "body from head to heels stays in frame. Start filming before the first rep.")
+
+
+def state_card(title: str, body: str, tone: str = "neutral"):
+    edge = {"error": RED, "warn": AMBER, "neutral": BLUE}[tone]
+    st.markdown(f'<div class="fc-card" role="status" style="box-shadow: inset 4px 0 0 {edge}">'
+                f'<div class="fc-headline">{title}</div><div class="fc-small" style="font-size:.95rem">'
+                f'{body}</div></div>', unsafe_allow_html=True)
+
+
+def render_error(res: dict):
+    if res["error"] == "unreadable":
+        state_card("We couldn't read this video",
+                   "The file didn't decode as a video we can track. Export it as MP4 (H.264) or MOV from your "
+                   "phone's gallery and upload it again.", "error")
+    else:
+        state_card("We couldn't analyse this set",
+                   "Tracking worked but measuring the reps failed. Try the upload again; if it keeps failing, "
+                   "trim the clip to just the set.", "error")
+    with st.expander("Technical details"):
+        st.code(res.get("detail", ""))
+
+
+def render_no_reps(a: dict):
+    act = a.get("activity", {})
+    reason = act.get("reason", "")
+    if "no person" in reason:
+        title, body = "No one in frame", "We couldn't find a person in this clip. " + FILM_TIPS
+    elif "upright" in reason or "hands are not" in reason:
+        title, body = ("This doesn't look like a push-up", "We saw someone, but never in a push-up position "
+                       "(body horizontal, legs straight, hands on the floor). " + FILM_TIPS)
+    elif "plank" in reason:
+        title, body = ("Plank hold, no reps", "You held the position well, but your elbows never bent and "
+                       "straightened. Upload a set with at least one full rep.")
+    else:
+        title, body = "No complete reps found", "We couldn't find a full rep in this clip. " + FILM_TIPS
+    state_card(title, body, "warn")
+
+
 def render(res: dict):
+    if res.get("error"):
+        render_error(res)
+        return
     a, fb = res["analysis"], res["feedback"]
     reps, summ = a["reps"], a["summary"]
 
     if res["mocked"]:
-        st.info("Sample data in use for: **" + ", ".join(res["mocked"]) + "**. Upload your own clip to "
-                "analyse it.", icon="ℹ️")
+        st.info("You're viewing the demo set. Upload your own side-view clip to analyse it.", icon="ℹ️")
+    if not reps:
+        render_no_reps(a)
+        return
     for name, tb in res["errors"]:
         with st.expander(f"{name} failed and fell back to sample data"):
             st.code(tb)
     for w in a.get("warnings", []):
-        st.warning(w)
+        if not w.startswith("Not counted as a push-up set"):
+            st.warning(w)
     if a.get("confidence", 1) < 0.6:
         st.error("We can't see you clearly enough to judge form. Film from the side, landscape, with your "
                  "whole body from head to heels in frame, then upload again.")
@@ -419,7 +480,7 @@ with up_col:
     upload = st.file_uploader("Side-view video of one push-up set (mp4, mov, under ~60 s)",
                               type=["mp4", "mov", "m4v", "avi", "webm"])
 with demo_col:
-    if st.button("Try the demo", width="stretch", type="primary"):
+    if st.button("Try the demo", width="stretch", type="secondary"):
         st.session_state.demo = True
 
 with st.expander("How to film for the best results"):
