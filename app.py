@@ -39,13 +39,13 @@ OUT = ROOT / "outputs"
 for _d in ("uploads", "cache", "overlays", "datasets", "reports"):
     (OUT / _d).mkdir(parents=True, exist_ok=True)
 
-ACCENT = "#C6FF3D"
-CYAN = "#3DE0FF"
-RED = "#FF5470"
-AMBER = "#FFB547"
-MUTED = "#8B98A5"
-BG = "#0A0E13"
-CARD = "#131A23"
+ACCENT = "#FC4C02"
+CYAN = "#1A73E8"
+RED = "#D92D20"
+AMBER = "#DC6803"
+MUTED = "#6D6D78"
+BG = "#F7F7FA"
+CARD = "#FFFFFF"
 
 DEMOS = {
     "Side view — 6 slow reps (beach)": SAMPLES / "demo_side.mp4",
@@ -75,58 +75,59 @@ CSS = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
 html, body, [class*="css"], .stMarkdown, .stText {{ font-family: 'Inter', sans-serif; }}
-.stApp {{ background: radial-gradient(1200px 600px at 10% -10%, rgba(198,255,61,0.07), transparent 60%),
-                     radial-gradient(900px 500px at 100% 0%, rgba(61,224,255,0.06), transparent 60%), {BG}; }}
+.stApp {{ background: {BG}; }}
+header[data-testid="stHeader"] {{ background: #FFFFFF; border-bottom: 1px solid #E6E6EB; }}
 .block-container {{ padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1400px; }}
-section[data-testid="stSidebar"] {{ background: #0D131A; border-right: 1px solid #1C2530; }}
-.fs-hero {{ padding: 1.4rem 1.6rem; border-radius: 18px; border: 1px solid #1E2833;
-            background: linear-gradient(135deg, rgba(198,255,61,0.10), rgba(61,224,255,0.05) 55%, rgba(19,26,35,0.9));
+section[data-testid="stSidebar"] {{ background: #FFFFFF; border-right: 1px solid #E6E6EB; }}
+.fs-hero {{ padding: 1.4rem 1.6rem; border-radius: 18px; border: 1px solid #E6E6EB;
+            background: #FFFFFF; border-top: 5px solid {ACCENT}; box-shadow: 0 1px 3px rgba(0,0,0,.06);
             margin-bottom: 1.1rem; position: relative; overflow: hidden; }}
-.fs-hero h1 {{ font-size: 2.35rem; font-weight: 800; letter-spacing: -0.03em; margin: 0; color: #F4F8FB; }}
+.fs-hero h1 {{ font-size: 2.35rem; font-weight: 800; letter-spacing: -0.03em; margin: 0; color: #242428; }}
 .fs-hero h1 span {{ color: {ACCENT}; }}
-.fs-hero p {{ color: #A9B6C2; margin: .35rem 0 0 0; font-size: 1.02rem; }}
+.fs-hero p {{ color: #5F5F69; margin: .35rem 0 0 0; font-size: 1.02rem; }}
 .fs-pill {{ display:inline-block; padding: .18rem .6rem; border-radius: 999px; font-size: .74rem; font-weight: 600;
-            border: 1px solid #2A3644; color: #C9D4DE; margin-right: .35rem; margin-top: .7rem; background: rgba(10,14,19,.5); }}
-.fs-pill.lime {{ border-color: rgba(198,255,61,.5); color: {ACCENT}; }}
+            border: 1px solid #DFDFE6; color: #494950; margin-right: .35rem; margin-top: .7rem; background: #FFFFFF; }}
+.fs-pill.lime {{ border-color: rgba(252,76,2,.45); color: {ACCENT}; }}
 .fs-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin: .4rem 0 1rem 0; }}
-.fs-card {{ background: {CARD}; border: 1px solid #1E2833; border-radius: 14px; padding: .85rem 1rem; }}
+.fs-card {{ background: {CARD}; border: 1px solid #E6E6EB; border-radius: 12px; padding: .85rem 1rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,.05); }}
 .fs-card .lbl {{ font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: {MUTED}; font-weight: 600; }}
-.fs-card .val {{ font-size: 1.85rem; font-weight: 800; color: #F4F8FB; line-height: 1.15; margin-top: .15rem;
+.fs-card .val {{ font-size: 1.85rem; font-weight: 800; color: #242428; line-height: 1.15; margin-top: .15rem;
                  font-variant-numeric: tabular-nums; }}
 .fs-card .val.lime {{ color: {ACCENT}; }}
 .fs-card .val.red {{ color: {RED}; }}
 .fs-card .val.amber {{ color: {AMBER}; }}
 .fs-card .sub {{ font-size: .78rem; color: {MUTED}; margin-top: .1rem; }}
-.fs-coach {{ background: linear-gradient(160deg, #141C26, #10161E); border: 1px solid #22303D; border-radius: 16px;
+.fs-coach {{ background: linear-gradient(160deg, #FFFFFF, #FFF7F2); border: 1px solid #E6E6EB; border-radius: 16px;
              padding: 1.1rem 1.25rem; }}
-.fs-coach h3 {{ margin: 0 0 .3rem 0; font-size: 1.3rem; font-weight: 750; color: #F4F8FB; }}
-.fs-coach .summary {{ color: #B7C3CE; font-size: .96rem; }}
+.fs-coach h3 {{ margin: 0 0 .3rem 0; font-size: 1.3rem; font-weight: 750; color: #242428; }}
+.fs-coach .summary {{ color: #55555E; font-size: .96rem; }}
 .fs-grade {{ float: right; width: 64px; height: 64px; border-radius: 16px; display:flex; align-items:center;
-             justify-content:center; font-size: 2.1rem; font-weight: 900; color: {BG}; margin-left: 1rem; }}
-.fs-fix {{ border-left: 3px solid {ACCENT}; padding: .45rem .8rem; margin: .55rem 0; background: rgba(198,255,61,.04);
+             justify-content:center; font-size: 2.1rem; font-weight: 900; color: #FFFFFF; margin-left: 1rem; }}
+.fs-fix {{ border-left: 3px solid {ACCENT}; padding: .45rem .8rem; margin: .55rem 0; background: rgba(252,76,2,.05);
            border-radius: 0 10px 10px 0; }}
-.fs-fix b {{ color: #F4F8FB; }}
+.fs-fix b {{ color: #242428; }}
 .fs-fix .cue {{ font-family: 'JetBrains Mono', monospace; color: {ACCENT}; font-size: .86rem; }}
-.fs-fix .why {{ color: #9FB0BF; font-size: .86rem; }}
+.fs-fix .why {{ color: #6D6D78; font-size: .86rem; }}
 .fs-src {{ font-size: .72rem; color: {MUTED}; }}
-.fs-note {{ color: #A9B6C2; font-size: .92rem; }}
-.fs-section {{ font-size: 1.05rem; font-weight: 700; color: #E6EDF3; margin: 1.1rem 0 .4rem 0; letter-spacing: -0.01em; }}
+.fs-note {{ color: #5F5F69; font-size: .92rem; }}
+.fs-section {{ font-size: 1.05rem; font-weight: 700; color: #242428; margin: 1.1rem 0 .4rem 0; letter-spacing: -0.01em; }}
 .fs-section span {{ color: {ACCENT}; }}
-.fs-banner {{ border: 1px solid rgba(255,181,71,.45); background: rgba(255,181,71,.08); color: #FFD9A0;
+.fs-banner {{ border: 1px solid rgba(247,144,9,.45); background: rgba(247,144,9,.08); color: #93370D;
               padding: .7rem 1rem; border-radius: 12px; margin-bottom: .8rem; }}
-.fs-ph {{ border: 1px dashed #2A3644; border-radius: 14px; padding: 1.1rem; color: {MUTED}; text-align: center; }}
+.fs-ph {{ border: 1px dashed #DFDFE6; border-radius: 14px; padding: 1.1rem; color: {MUTED}; text-align: center; }}
 div[data-testid="stTabs"] button[role="tab"] p {{ font-size: 1.0rem; font-weight: 650; }}
 div[data-testid="stTabs"] button[aria-selected="true"] p {{ color: {ACCENT}; }}
-.stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{ color: {BG}; font-weight: 700; }}
+.stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{ color: #FFFFFF; font-weight: 700; border-radius: 6px; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
 PLOT_LAYOUT = dict(
-    template="plotly_dark",
+    template="plotly_white",
     paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(19,26,35,0.6)",
-    font=dict(family="Inter, sans-serif", color="#C9D4DE", size=12),
+    plot_bgcolor="#FFFFFF",
+    font=dict(family="Inter, sans-serif", color="#494950", size=12),
     margin=dict(l=10, r=10, t=70, b=10),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, x=1, xanchor="right", bgcolor="rgba(0,0,0,0)"),
     hovermode="x unified",
@@ -587,14 +588,14 @@ def angle_chart(an: dict) -> go.Figure:
             yv = elbow[j] if j < len(elbow) and np.isfinite(elbow[j]) else depth
             xs.append(ti); ys.append(yv)
             txt.append(f"Rep {r.get('n')}: {iss.get('msg', iss.get('code'))}")
-            cols.append({"high": RED, "med": AMBER}.get(iss.get("severity"), "#FFE066"))
+            cols.append({"high": RED, "med": AMBER}.get(iss.get("severity"), "#EAAA08"))
     if xs:
         fig.add_trace(go.Scatter(x=xs, y=ys, mode="markers", name="Faults",
                                  marker=dict(symbol="x", size=11, color=cols, line=dict(width=1, color=BG)),
                                  text=txt, hovertemplate="%{text}<extra></extra>"))
     fig.update_layout(**PLOT_LAYOUT, height=380, title="Joint angles over time")
-    fig.update_yaxes(title="degrees", range=[30, 198], gridcolor="#1E2833")
-    fig.update_xaxes(title="time (s)", gridcolor="#1E2833")
+    fig.update_yaxes(title="degrees", range=[30, 198], gridcolor="#E6E6EB")
+    fig.update_xaxes(title="time (s)", gridcolor="#E6E6EB")
     return fig
 
 
@@ -603,15 +604,15 @@ def line_fig(t: np.ndarray, traces: list[tuple[str, np.ndarray, str]], title: st
     fig = go.Figure()
     for r in reps or []:
         if r.get("start") is not None and r.get("end") is not None:
-            fig.add_vrect(x0=r["start"], x1=r["end"], fillcolor="#FFFFFF", opacity=0.03, line_width=0)
+            fig.add_vrect(x0=r["start"], x1=r["end"], fillcolor="#242428", opacity=0.035, line_width=0)
     for name, y, col in traces:
         fig.add_trace(go.Scatter(x=t, y=y, name=name, line=dict(color=col, width=2),
                                  fill="tozeroy" if fill else None,
                                  fillcolor=f"rgba{tuple(int(col[i:i + 2], 16) for i in (1, 3, 5)) + (0.12,)}"
                                  if fill else None))
     fig.update_layout(**PLOT_LAYOUT, height=height, title=title)
-    fig.update_yaxes(title=ytitle, gridcolor="#1E2833")
-    fig.update_xaxes(title="time (s)", gridcolor="#1E2833")
+    fig.update_yaxes(title=ytitle, gridcolor="#E6E6EB")
+    fig.update_xaxes(title="time (s)", gridcolor="#E6E6EB")
     return fig
 
 
@@ -651,7 +652,7 @@ def force_diagram(lm: dict, an: dict | None, ph: dict, idx: int, mass: float) ->
     L = fr["lm"]
     p = side_prefix(L, (an or {}).get("side"))
     xs, ys = skeleton_xy(L, p)
-    fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines+markers", line=dict(color="#DDE6EE", width=5),
+    fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines+markers", line=dict(color="#3F3F46", width=5),
                              marker=dict(size=8, color=ACCENT), name="body", hoverinfo="skip"))
     s = ph.get("series", {})
     frac = arr(s, "hand_load_frac")
@@ -687,7 +688,7 @@ def force_diagram(lm: dict, an: dict | None, ph: dict, idx: int, mass: float) ->
         fig.add_annotation(x=x1, y=y1, ax=x0, ay=y0, xref="x", yref="y", axref="x", ayref="y",
                            showarrow=True, arrowhead=3, arrowsize=1.3, arrowwidth=3.5, arrowcolor=col, text="")
         fig.add_annotation(x=x1, y=y1, text=f"<b>{label}</b>", showarrow=False, font=dict(color=col, size=12),
-                           yshift=-14 if y1 < y0 else 14, bgcolor="rgba(10,14,19,0.7)")
+                           yshift=-14 if y1 < y0 else 14, bgcolor="rgba(255,255,255,0.85)")
     # Torque readouts at joints
     for key, joint, col in (("elbow_torque_Nm", "elbow", AMBER), ("shoulder_torque_Nm", "shoulder", AMBER),
                             ("lumbar_moment_Nm", "hip", AMBER)):
@@ -695,7 +696,7 @@ def force_diagram(lm: dict, an: dict | None, ph: dict, idx: int, mass: float) ->
         J = L.get(f"{p}_{joint}")
         if J and idx < len(v) and np.isfinite(v[idx]):
             fig.add_annotation(x=J[0], y=J[1], text=f"{joint} {abs(v[idx]):.0f} N·m", showarrow=False, yshift=-22,
-                               font=dict(color=col, size=11), bgcolor="rgba(10,14,19,0.6)")
+                               font=dict(color=col, size=11), bgcolor="rgba(255,255,255,0.85)")
     pad = 0.12 * span
     fig.update_layout(**{**PLOT_LAYOUT, "hovermode": "closest"}, height=430, showlegend=False,
                       title=f"Free-body diagram · t = {fr.get('t', 0):.2f} s")
@@ -723,7 +724,7 @@ def skeleton_animation(sample_lm: dict, max_frames: int = 90) -> go.Figure:
             return go.Scatter(x=[], y=[], mode="lines+markers")
         xs, ys = skeleton_xy(f["lm"], p)
         return go.Scatter(x=xs, y=ys, mode="lines+markers", line=dict(color=ACCENT, width=5),
-                          marker=dict(size=7, color="#F4F8FB"))
+                          marker=dict(size=7, color="#242428"))
 
     fig = go.Figure(data=[trace(first)],
                     frames=[go.Frame(data=[trace(f)], name=str(k)) for k, f in enumerate(frames)])
@@ -798,10 +799,10 @@ def coach_card(rp: dict) -> None:
                      f"<div class='why'>{e(str(f.get('why', '')))}</div></div>")
     strengths = "".join(f"<li>{e(str(x))}</li>" for x in (rp.get("strengths") or [])[:3])
     if strengths:
-        parts.append(f"<div style='margin-top:.5rem;color:#C9D4DE'><b>Strengths</b>"
+        parts.append(f"<div style='margin-top:.5rem;color:#494950'><b>Strengths</b>"
                      f"<ul style='margin:.2rem 0'>{strengths}</ul></div>")
     if rp.get("next_session"):
-        parts.append(f"<div style='margin-top:.4rem;color:#C9D4DE'><b>Next session:</b> "
+        parts.append(f"<div style='margin-top:.4rem;color:#494950'><b>Next session:</b> "
                      f"{e(str(rp['next_session']))}</div>")
     parts.append("</div>")
     st.markdown("".join(parts), unsafe_allow_html=True)
@@ -1001,7 +1002,7 @@ def tab_analyze() -> None:
             items = "".join(f"<li>{_esc(str(w))}</li>" for w in an.get("warnings", []))
             st.markdown(f"<div class='fs-coach'><b style='color:{CYAN}'>Robustness report</b> — this clip is an "
                         f"edited montage, not one continuous set. Instead of inventing reps, FormSim detected the "
-                        f"edits and refused to count partial reps:<ul style='margin:.4rem 0 0 0;color:#B7C3CE'>"
+                        f"edits and refused to count partial reps:<ul style='margin:.4rem 0 0 0;color:#55555E'>"
                         f"{items}</ul><div class='fs-src'>Tracking stayed on the athlete at "
                         f"{fmt((an.get('confidence') or 0) * 100, 0)}% confidence.</div></div>",
                         unsafe_allow_html=True)
@@ -1298,11 +1299,11 @@ def tab_simlab() -> None:
             fig.update_layout(paper_bgcolor="rgba(0,0,0,0)")
         try:  # dark-theme the play/pause buttons and frame slider
             if fig.layout.updatemenus:
-                fig.update_layout(updatemenus=[{**um.to_plotly_json(), "bgcolor": CARD, "bordercolor": "#2A3644",
+                fig.update_layout(updatemenus=[{**um.to_plotly_json(), "bgcolor": CARD, "bordercolor": "#DFDFE6",
                                                 "showactive": False, "font": {"color": ACCENT}} for um in fig.layout.updatemenus])
             if fig.layout.sliders:
-                fig.update_layout(sliders=[{**sl.to_plotly_json(), "bgcolor": "#1E2833", "bordercolor": "#2A3644",
-                                            "activebgcolor": ACCENT, "font": {"color": "#C9D4DE"}}
+                fig.update_layout(sliders=[{**sl.to_plotly_json(), "bgcolor": "#E6E6EB", "bordercolor": "#DFDFE6",
+                                            "activebgcolor": ACCENT, "font": {"color": "#494950"}}
                                            for sl in fig.layout.sliders])
         except Exception:  # noqa: BLE001
             pass
@@ -1413,8 +1414,8 @@ def real_vs_sim_chart(smp: dict) -> None:
     fig.update_layout(**PLOT_LAYOUT, height=300, title="Elbow angle over time (deg)")
     fig.update_xaxes(title="time (s)")
     st.plotly_chart(fig, width="stretch", key="real_vs_sim")
-    st.caption("Same analyzer, same units: the simulated athlete's measured trace (lime) vs the real athlete (grey). "
-               "The gap between lime and dotted cyan is camera projection + tracking noise, which the simulator "
+    st.caption("Same analyzer, same units: the simulated athlete's measured trace (orange) vs the real athlete (grey). "
+               "The gap between orange and dotted blue is camera projection + tracking noise, which the simulator "
                "models on purpose.")
 
 
@@ -1592,9 +1593,9 @@ def tab_about() -> None:
     dot = f"""
 digraph G {{
   rankdir=LR; bgcolor="transparent"; pad=0.2;
-  node [shape=box, style="rounded,filled", fillcolor="#131A23", color="#2A3644", fontcolor="#E6EDF3",
+  node [shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#DFDFE6", fontcolor="#242428",
         fontname="Helvetica", fontsize=11, margin="0.18,0.10"];
-  edge [color="#5B6B7A", arrowsize=0.7];
+  edge [color="#A0A0AB", arrowsize=0.7];
   video [label="📱 Side-view video", color="{ACCENT}"];
   pose [label="Pose tracking\\nMediaPipe · 19 joints"];
   an [label="Biomechanics\\nreps · faults · tempo · fatigue"];
@@ -1607,8 +1608,8 @@ digraph G {{
   video -> pose -> an -> ph -> coach -> ov;
   an -> ov;
   synth -> ds;
-  synth -> bench [label=" ground truth", fontcolor="#8B98A5", fontsize=9];
-  an -> bench [style=dashed, label=" scored", fontcolor="#8B98A5", fontsize=9];
+  synth -> bench [label=" ground truth", fontcolor="#6D6D78", fontsize=9];
+  an -> bench [style=dashed, label=" scored", fontcolor="#6D6D78", fontsize=9];
 }}"""
     st.graphviz_chart(dot, width="stretch")
     c1, c2 = st.columns(2)

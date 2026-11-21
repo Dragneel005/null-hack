@@ -684,7 +684,7 @@ def _frame_at(sample: dict, t: float | None) -> int:
 def _skeleton_traces(lm: dict, near: str):
     import plotly.graph_objects as go
     traces = []
-    for side, col, wd in ((("r" if near == "l" else "l"), "rgba(120,140,170,0.55)", 3), (near, "#00c853", 5)):
+    for side, col, wd in ((("r" if near == "l" else "l"), "rgba(120,140,170,0.55)", 3), (near, "#FC4C02", 5)):
         xs, ys = [], []
         for a, b in SKELETON:
             if a[0] == side and a[1] == "_" or (a == "nose" and b[0] == side):
